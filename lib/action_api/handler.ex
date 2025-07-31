@@ -244,9 +244,7 @@ if Code.ensure_loaded?(Cachex) do
           |> execute(capability, params)
           |> case do
             {:ok, response} ->
-              response
-              |> Jason.encode!()
-              |> _check_payload_size()
+              Jason.encode!(response)
 
             {:error, error} ->
               case Jason.encode(%{error: error}) do
@@ -255,14 +253,6 @@ if Code.ensure_loaded?(Cachex) do
               end
           end
         end
-
-        defp _check_payload_size(response) when byte_size(response) > 1_000_000 do
-          %{error: "Response is exceeding limit of 1MB"}
-          |> Jason.encode!()
-        end
-
-        defp _check_payload_size(response),
-          do: response
 
         def default_execution_timeout(_capability),
           do: 60_000
