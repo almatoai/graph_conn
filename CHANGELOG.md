@@ -1,3 +1,9 @@
+# 1.9.5
+
+## Enhancement
+
+- Remove response size check. It will be done in client.
+
 # 1.9.4
 
 ## Enhancement
