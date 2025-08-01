@@ -56,6 +56,9 @@ defmodule GraphConn.GraphRestCalls do
     end
   end
 
+  # we expect small and finite number of apis in versions response,
+  # so it's safe to convert them to atoms
+  # sobelow_skip ["DOS.StringToAtom"]
   @spec _get_versions(Request.t(), module(), Keyword.t()) :: {:ok, versions()} | {:error, any()}
   defp _get_versions(%Request{} = request, base_name, config) do
     request

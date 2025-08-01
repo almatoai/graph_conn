@@ -36,6 +36,8 @@ defmodule GraphConn.WS do
     end
   end
 
+  # transport is set in config file so it's safe to convert it to atom
+  # sobelow_skip ["DOS.StringToAtom"]
   defp _proxy_config do
     :graph_conn
     |> Application.get_env(:proxy)
