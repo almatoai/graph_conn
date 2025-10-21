@@ -229,6 +229,7 @@ defmodule GraphConn.Test.MockRouter do
 
   defp _success(conn, body) do
     conn
+    |> Plug.Conn.put_resp_content_type("application/json")
     |> Plug.Conn.send_resp(200, Jason.encode!(body))
   end
 
@@ -242,6 +243,7 @@ defmodule GraphConn.Test.MockRouter do
     }
 
     conn
+    |> Plug.Conn.put_resp_content_type("application/json")
     |> Plug.Conn.send_resp(401, Jason.encode!(body))
   end
 end

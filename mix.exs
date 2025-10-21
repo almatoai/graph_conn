@@ -62,6 +62,9 @@ defmodule GraphConn.MixProject do
       # test dependencies
       {:ring_logger, "~> 0.10", only: :dev},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.12", only: [:dev, :test], runtime: false},
       {:plug_cowboy, "~> 2.1"}

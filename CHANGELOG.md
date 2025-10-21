@@ -24,6 +24,13 @@
 - Requires otp >= 25
 - use correctly custom CA if one is set
 
+- BREAKING: if http request (not https) is used to connect to graph or mock,
+  following is mandatory, otherwise finch will crash:
+
+  ```elixir
+  config :graph_conn, insecure: true
+  ```
+
 # 1.9.1
 
 ## Enhancements

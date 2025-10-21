@@ -4,6 +4,8 @@ config :logger, :console,
   format: "$time $metadata[$level] $message\n",
   level: :info
 
+config :graph_conn, insecure: true
+
 config :graph_conn, ActionInvoker,
   url: "http://localhost:4711",
   # url: "http://localhost:8081",
