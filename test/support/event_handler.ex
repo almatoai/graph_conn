@@ -7,8 +7,8 @@ defmodule GraphConn.Test.EventHandler do
 
   @impl GraphConn.EventHandler
   def register() do
-
     filter = "&(element.ogit/_type = ogit/Automation/AutomationIssue)"
+
     %{
       "filter-id": "hdw-GraphConn.Test.EventHandler-#{filter}",
       "filter-type": "jfilter",

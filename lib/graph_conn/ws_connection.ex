@@ -56,6 +56,7 @@ defmodule GraphConn.WsConnection do
   def init({base_name, api, config, internal_state, version, token}) do
     status = {:disconnected, :started}
     path = "#{version.path}?#{_url_params(config)}"
+
     state =
       %State{
         base_name: base_name,

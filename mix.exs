@@ -7,18 +7,9 @@ defmodule GraphConn.MixProject do
     [
       app: :graph_conn,
       version: "1.8.0",
-      elixir: "~> 1.10",
+      elixir: "~> 1.17",
       start_permanent: true,
       test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [
-        coveralls: :test,
-        "coveralls.detail": :test,
-        "coveralls.post": :test,
-        "coveralls.html": :test,
-        dialyzer: :test,
-        docs: :test,
-        bless: :test
-      ],
       dialyzer: [
         plt_add_deps: :apps_direct,
         plt_add_apps: [:mix, :plug, :cowboy, :jason, :mint, :public_key]
@@ -37,11 +28,25 @@ defmodule GraphConn.MixProject do
     |> _start_server(@mix_env)
   end
 
-  # if you are changing this settings, don't forget to force compile the app
-  unless System.get_env("USE_LOCAL_AAPI") == "true" do
-    defp _start_server(list, :dev),
-      do: [{:mod, {GraphConn.MockGraphApplication, []}} | list]
+  def cli do
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test,
+        dialyzer: :test,
+        docs: :test,
+        bless: :test
+      ]
+    ]
   end
+
+  # if you are changing this settings, don't forget to force compile the app
+  # unless System.get_env("USE_LOCAL_AAPI") == "true" do
+  #   defp _start_server(list, :dev),
+  #     do: [{:mod, {GraphConn.MockGraphApplication, []}} | list]
+  # end
 
   defp _start_server(list, _), do: list
 
