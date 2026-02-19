@@ -59,9 +59,15 @@ defmodule GraphConn.Test.MockRouter do
       |> Enum.map(fn {key, val} -> {to_string(key), val} end)
       |> Enum.into(%{})
 
+    event_handler_credentials =
+      GraphConn.Test.MockServer.valid_event_handler_credentials()
+      |> Enum.map(fn {key, val} -> {to_string(key), val} end)
+      |> Enum.into(%{})
+
     case conn.params do
       ^config_credentials -> _success(conn, _credentials())
       ^handler_credentials -> _success(conn, _credentials(true))
+      ^event_handler_credentials -> _success(conn, _credentials(true))
       _ -> _unauthorized(conn)
     end
   end
