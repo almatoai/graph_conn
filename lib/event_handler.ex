@@ -48,7 +48,7 @@ defmodule GraphConn.EventHandler do
       @impl Supervisor
       def init(config) do
         children = [
-          {GraphConn.Supervisor, [__MODULE__, {config, %{}}]},
+          {GraphConn.Supervisor, [__MODULE__, {config, %{}}]}
         ]
 
         Supervisor.init(children, strategy: :one_for_one, max_restarts: 1)
@@ -90,22 +90,21 @@ defmodule GraphConn.EventHandler do
       end
 
       def handle_message(
-        :"events-ws",
-        %{
-          "type" => _type,
-          "body" => _body
-        } = event,
-        _
-      ) do
+            :"events-ws",
+            %{
+              "type" => _type,
+              "body" => _body
+            } = event,
+            _
+          ) do
         Logger.debug("[EventHandler] Received event: #{inspect(event)}")
         handle_event(event)
       end
 
-      def handle_message(:"events-ws", msg, internal_state), do:
-        handle_message_default(:"events-ws", msg, internal_state)
+      def handle_message(:"events-ws", msg, internal_state),
+        do: handle_message_default(:"events-ws", msg, internal_state)
 
-      def handle_event_default(msg), do:
-        handle_message_default(:"events-ws", msg, nil)
+      def handle_event_default(msg), do: handle_message_default(:"events-ws", msg, nil)
 
       def handle_message_default(:"events-ws", msg, _) do
         Logger.warning(

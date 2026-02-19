@@ -38,10 +38,10 @@ defmodule GraphConn.MixProject do
   end
 
   # if you are changing this settings, don't forget to force compile the app
-  unless System.get_env("USE_LOCAL_AAPI") == "true" do
-    defp _start_server(list, :dev),
-      do: [{:mod, {GraphConn.MockGraphApplication, []}} | list]
-  end
+  # unless System.get_env("USE_LOCAL_AAPI") == "true" do
+  #   defp _start_server(list, :dev),
+  #     do: [{:mod, {GraphConn.MockGraphApplication, []}} | list]
+  # end
 
   defp _start_server(list, _), do: list
 
