@@ -6,7 +6,7 @@ defmodule GraphConn.Test.EventsMockSocket do
   @behaviour :cowboy_websocket
 
   def init(
-        %{headers: %{"sec-websocket-protocol" => "0.9, token-events_" <> client_type}} = request,
+        %{headers: %{"sec-websocket-protocol" => "6.1, token-events_" <> client_type}} = request,
         _state
       ) do
     state = %{registry_key: "events_" <> client_type}
