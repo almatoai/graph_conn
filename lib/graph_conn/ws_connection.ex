@@ -14,6 +14,7 @@ defmodule GraphConn.WsConnection do
             internal_state: map(),
             status: GraphConn.status(),
             last_pong: DateTime.t(),
+            last_upgrade: DateTime.t() | nil,
             ws_ping: [
               interval_in_ms: pos_integer(),
               reconnect_after_missing_pings: pos_integer()
@@ -22,7 +23,7 @@ defmodule GraphConn.WsConnection do
             stream_ref: nil | reference()
           }
 
-    @enforce_keys ~w(base_name api internal_state status last_pong ws_ping)a
+    @enforce_keys ~w(base_name api internal_state status last_pong last_upgrade ws_ping)a
     defstruct @enforce_keys ++ ~w(conn_pid stream_ref)a
   end
 
@@ -54,6 +55,7 @@ defmodule GraphConn.WsConnection do
   @impl GenServer
   def init({base_name, api, config, internal_state, version, token}) do
     status = {:disconnected, :started}
+    path = "#{version.path}?#{_url_params(config)}"
 
     state =
       %State{
@@ -62,12 +64,19 @@ defmodule GraphConn.WsConnection do
         internal_state: internal_state,
         status: status,
         ws_ping: Keyword.get(config, :ws_ping, _default_ping_config()),
-        last_pong: DateTime.utc_now()
+        last_pong: DateTime.utc_now(),
+        last_upgrade: nil
       }
       |> _connect(config)
-      |> _ws_upgrade(version.path, version.subprotocol, token)
+      |> _ws_upgrade(path, version.subprotocol, token)
 
     {:ok, state}
+  end
+
+  defp _url_params(config) do
+    config
+    |> Keyword.get(:url_params, %{})
+    |> URI.encode_query()
   end
 
   defp _default_ping_config() do
@@ -233,6 +242,7 @@ defmodule GraphConn.WsConnection do
   defp _ws_upgrade(%State{conn_pid: conn_pid} = state, path, subprotocol, token) do
     Logger.info("Upgrading connection...")
     {:ok, stream_ref} = WS.ws_upgrade(conn_pid, path, subprotocol, token)
+    last_upgrade = DateTime.utc_now()
     Logger.info("WebSocket upgrade succeeded.")
 
     if Application.get_env(:graph_conn, :proxy) do
@@ -241,6 +251,6 @@ defmodule GraphConn.WsConnection do
     end
 
     Process.send_after(self(), :check_last_pong, Keyword.get(state.ws_ping, :interval_in_ms))
-    %State{state | stream_ref: stream_ref}
+    %State{state | stream_ref: stream_ref, last_upgrade: last_upgrade}
   end
 end

@@ -4,9 +4,11 @@ config :logger, :console,
   format: "$time $metadata[$level] $message\n",
   level: :info
 
+config :graph_conn, insecure: true
+
 config :graph_conn, ActionInvoker,
-  url: "http://localhost:4711",
-  # url: "http://localhost:8081",
+  # url: "http://localhost:4711",
+  url: "http://localhost:8081",
   insecure: true,
   ws_ping: [
     interval_in_ms: 2_000,
@@ -22,8 +24,8 @@ config :graph_conn, ActionInvoker,
   ]
 
 config :graph_conn, ActionHandler,
-  url: "http://localhost:4712",
-  # url: "http://localhost:8081",
+  # url: "http://localhost:4712",
+  url: "http://localhost:8081",
   insecure: true,
   ws_ping: [
     interval_in_ms: 2_000,

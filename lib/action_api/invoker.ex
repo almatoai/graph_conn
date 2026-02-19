@@ -206,17 +206,21 @@ defmodule GraphConn.ActionApi.Invoker do
       def handle_message(:"action-ws", %{"type" => "acknowledged"} = msg, %InvokerState{}),
         do: RequestRegistry.ack(__MODULE__, msg["id"], @request_registry)
 
-      def handle_message(:"action-ws", %{"type" => "negativeAcknowledged"} = msg, %InvokerState{}),
-        do:
-          RequestRegistry.nack(
-            __MODULE__,
-            msg["id"],
-            %{
-              code: msg["code"],
-              message: msg["message"]
-            },
-            @request_registry
-          )
+      def handle_message(
+            :"action-ws",
+            %{"type" => "negativeAcknowledged"} = msg,
+            %InvokerState{}
+          ),
+          do:
+            RequestRegistry.nack(
+              __MODULE__,
+              msg["id"],
+              %{
+                code: msg["code"],
+                message: msg["message"]
+              },
+              @request_registry
+            )
 
       def handle_message(:"action-ws", %{"type" => "sendActionResult"} = msg, %InvokerState{}) do
         result = Jason.decode!(msg["result"])

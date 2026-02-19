@@ -18,12 +18,19 @@ defmodule GraphConn.MockGraphApplication do
         :valid_invoker_credentials
       )
 
+    :ok =
+      GraphConn.Test.MockServer.inject_local_config(
+        {:graph_conn, GraphConn.Test.EventHandler},
+        :valid_event_handler_credentials
+      )
+
     invoker_config = Application.get_env(:graph_conn, GraphConn.TestConn)
 
     opts = [strategy: :one_for_one, name: __MODULE__]
 
     [
       GraphConn.Test.MockServer,
+      GraphConn.Test.EventHandler,
       {ActionInvoker, invoker_config}
     ]
     |> Supervisor.start_link(opts)

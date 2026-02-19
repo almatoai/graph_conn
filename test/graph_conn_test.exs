@@ -167,7 +167,7 @@ defmodule GraphConnTest do
       # send message while process is down
       assert capture_log(fn ->
                :ok = TestConn.execute(:"action-ws", %Request{})
-             end) =~ ~r/WS connection is down! Retrying message sending...\n/
+             end) =~ ~r/WS connection is down! Retrying message sending.../
 
       assert_receive {:conn_status_changed, :"action-ws", :ready}
 
