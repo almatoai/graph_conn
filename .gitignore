@@ -28,3 +28,4 @@ graph_conn-*.tar
 
 # this file appear when ssh capability is invoked from AH docker container
 /ssh-keys/known_hosts
+/.elixir_ls/

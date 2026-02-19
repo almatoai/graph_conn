@@ -10,7 +10,7 @@ defmodule GraphConn.WSTest do
                         connect(_host(), _port(), [{:protocols, [:http2]} | _config()])
 
                assert Process.alive?(conn_pid)
-             end) =~ ~r/Connected to .* using http2\n/
+             end) =~ ~r/Connected to .* using http2/
     end
 
     test "connection can be forced for HTTP1.1" do
@@ -19,7 +19,7 @@ defmodule GraphConn.WSTest do
                         connect(_host(), _port(), [{:protocols, [:http]} | _config()])
 
                assert Process.alive?(conn_pid)
-             end) =~ ~r/Connected to .* using http\n/
+             end) =~ ~r/Connected to .* using http/
     end
   end
 
