@@ -5,10 +5,11 @@ defmodule GraphConn.ConnectionManager do
     @type t() :: %__MODULE__{
             base_name: atom(),
             ws_connections: map(),
-            status: GraphConn.status()
+            status: GraphConn.status(),
+            desired_status: GraphConn.status()
           }
 
-    @enforce_keys ~w(base_name ws_connections status)a
+    @enforce_keys ~w(base_name ws_connections status desired_status)a
     defstruct @enforce_keys
   end
 
@@ -97,13 +98,24 @@ defmodule GraphConn.ConnectionManager do
   @impl GenServer
   def init({base_name, config}) do
     _init_ets(base_name, config)
+
+    desired_status =
+      config
+      |> Keyword.get(:auto_connect, true)
+      |> case do
+        false -> {:disconnected, :started}
+        :just_versions -> :got_api_versions
+        true -> :ready
+      end
+
     send(self(), :connect)
     status = {:disconnected, :started}
 
     state = %State{
       base_name: base_name,
       ws_connections: %{},
-      status: status
+      status: status,
+      desired_status: desired_status
     }
 
     {:ok, state}
@@ -160,6 +172,9 @@ defmodule GraphConn.ConnectionManager do
   end
 
   @impl GenServer
+  def handle_info(:connect, %State{status: status, desired_status: status} = state),
+    do: {:noreply, state}
+
   def handle_info(:connect, %State{} = state),
     do: handle_info({:connect, 1_000}, state)
 
@@ -199,6 +214,7 @@ defmodule GraphConn.ConnectionManager do
       case GraphRestCalls.get_versions(state.base_name, config) do
         {:ok, versions} ->
           _update_ets(state.base_name, :versions, versions)
+          _status_changed(:got_api_versions, state)
           send(self(), :connect)
           %State{state | status: :got_api_versions}
 
@@ -343,7 +359,7 @@ defmodule GraphConn.ConnectionManager do
       |> Keyword.fetch!(:url)
       |> URI.parse()
 
-    auth_config = Keyword.fetch!(config, :auth)
+    auth_config = Keyword.get(config, :auth, [])
 
     %URI{
       host: auth_host,
