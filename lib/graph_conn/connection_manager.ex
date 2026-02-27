@@ -5,11 +5,10 @@ defmodule GraphConn.ConnectionManager do
     @type t() :: %__MODULE__{
             base_name: atom(),
             ws_connections: map(),
-            status: GraphConn.status(),
-            last_token: DateTime.t() | nil
+            status: GraphConn.status()
           }
 
-    @enforce_keys ~w(base_name ws_connections status last_token)a
+    @enforce_keys ~w(base_name ws_connections status)a
     defstruct @enforce_keys
   end
 
@@ -104,8 +103,7 @@ defmodule GraphConn.ConnectionManager do
     state = %State{
       base_name: base_name,
       ws_connections: %{},
-      status: status,
-      last_token: nil
+      status: status
     }
 
     {:ok, state}
@@ -220,15 +218,14 @@ defmodule GraphConn.ConnectionManager do
 
     case GraphRestCalls.authenticate(state.base_name, config, versions) do
       {:ok, %{token: token, expires_at: expires_at}} ->
-        utc_now = DateTime.utc_now()
-        now = utc_now |> DateTime.to_unix(:millisecond)
+        now = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
         # refresh token when it is said that it will expire
         refresh_in = expires_at - now
 
         Process.send_after(self(), :refresh_token, refresh_in)
         _update_ets(state.base_name, :token, token)
         _status_changed(:ready, state)
-        {:noreply, %State{state | status: :ready, last_token: utc_now}}
+        {:noreply, %State{state | status: :ready}}
 
       {:error, :wrong_credentials} ->
         {:stop, :wrong_credentials, state}
