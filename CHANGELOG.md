@@ -1,3 +1,15 @@
+# 1.9.5
+
+## Enhancement
+
+- Remove response size check. It will be done in client.
+
+# 1.9.4
+
+## Enhancement
+
+- When there are multiple tasks waiting for the same response, respond only to the latest one
+
 # 1.9.3
 
 ## Update
@@ -11,6 +23,13 @@
 
 - Requires otp >= 25
 - use correctly custom CA if one is set
+
+- BREAKING: if http request (not https) is used to connect to graph or mock,
+  following is mandatory, otherwise finch will crash:
+
+  ```elixir
+  config :graph_conn, insecure: true
+  ```
 
 # 1.9.1
 

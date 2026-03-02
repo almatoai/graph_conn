@@ -7,18 +7,9 @@ defmodule GraphConn.MixProject do
     [
       app: :graph_conn,
       version: "1.8.0",
-      elixir: "~> 1.10",
+      elixir: "~> 1.17",
       start_permanent: true,
       test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [
-        coveralls: :test,
-        "coveralls.detail": :test,
-        "coveralls.post": :test,
-        "coveralls.html": :test,
-        dialyzer: :test,
-        docs: :test,
-        bless: :test
-      ],
       dialyzer: [
         plt_add_deps: :apps_direct,
         plt_add_apps: [:mix, :plug, :cowboy, :jason, :mint, :public_key]
@@ -35,6 +26,20 @@ defmodule GraphConn.MixProject do
       extra_applications: [:logger, :ssl]
     ]
     |> _start_server(@mix_env)
+  end
+
+  def cli do
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test,
+        dialyzer: :test,
+        docs: :test,
+        bless: :test
+      ]
+    ]
   end
 
   # if you want to connect to local aapi comment this function
@@ -60,6 +65,9 @@ defmodule GraphConn.MixProject do
       # test dependencies
       {:ring_logger, "~> 0.10", only: :dev},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.12", only: [:dev, :test], runtime: false},
       {:plug_cowboy, "~> 2.1"}

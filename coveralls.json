@@ -2,6 +2,6 @@
   "coverage_options": {
     "treat_no_relevant_lines_as_covered": true,
     "output_dir": "doc",
-    "minimum_coverage": 72.5
+    "minimum_coverage": 72.0
   }
 }

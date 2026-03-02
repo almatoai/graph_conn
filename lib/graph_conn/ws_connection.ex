@@ -54,6 +54,7 @@ defmodule GraphConn.WsConnection do
   @impl GenServer
   def init({base_name, api, config, internal_state, version, token}) do
     status = {:disconnected, :started}
+    path = "#{version.path}?#{_url_params(config)}"
 
     state =
       %State{
@@ -65,9 +66,15 @@ defmodule GraphConn.WsConnection do
         last_pong: DateTime.utc_now()
       }
       |> _connect(config)
-      |> _ws_upgrade(version.path, version.subprotocol, token)
+      |> _ws_upgrade(path, version.subprotocol, token)
 
     {:ok, state}
+  end
+
+  defp _url_params(config) do
+    config
+    |> Keyword.get(:url_params, %{})
+    |> URI.encode_query()
   end
 
   defp _default_ping_config() do

@@ -18,12 +18,12 @@ end
 ## Telemetry
 
 Sends telemetry events:
-_ `[:graph_conn, :ws_upgrade], %{time, duration}, %{node, success}`
-_ `[:graph_conn, :ws_down], %{time}, %{node}`
-_ `[:graph_conn, :ws_lost_connection], %{time}, %{node}`
-_ `[:graph_conn, :ws_sent_bytes], %{time, duration, bytes}, %{node}`
-_ `[:graph_conn, :ws_received_bytes], %{time, bytes}, %{node}`
-_ `[:graph_conn, :rest], %{time, duration, bytes_sent, bytes_received}, %{node, path, method, status_code}`
+* `[:graph_conn, :ws_upgrade], %{time, duration}, %{node, success}`
+* `[:graph_conn, :ws_down], %{time}, %{node}`
+* `[:graph_conn, :ws_lost_connection], %{time}, %{node}`
+* `[:graph_conn, :ws_sent_bytes], %{time, duration, bytes}, %{node}`
+* `[:graph_conn, :ws_received_bytes], %{time, bytes}, %{node}`
+* `[:graph_conn, :rest], %{time, duration, bytes_sent, bytes_received}, %{node, path, method, status_code}`
 
 `time` is in UTC, `success` is boolean, `duration` is in ms, `bytes` is number of bytes sent or recieved.
 
@@ -164,15 +164,16 @@ end
 Set Graph server details
 
 ```elixir
-config :graph_conn, MyConn,
-  host: "example.com",
-  port: 8443,
-  insecure: true,
-  credentials: [
-    client_id: "client_id",
-    client_secret: "client_secret",
-    password: "password%",
-    username: "me@arago.de"
+config :my_app, MyConn,
+  url: "https://example.com:8443",
+  insecure: false,
+  auth: [
+    credentials: [
+      client_id: "client_id",
+      client_secret: "client_secret",
+      password: "password%",
+      username: "me@alamto.com"
+    ]
   ]
 ```
 

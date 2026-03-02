@@ -37,7 +37,7 @@ defmodule GraphConn.ActionApi.HandlerTest do
 
   test "second action call with the same req_id is waiting for first execution to finish" do
     params = %{"other_handler" => "Echo", "command" => "ls", "sleep" => 40}
-    executions = 2
+    executions = 3
     req_id = UUID.uuid4()
 
     for _ <- 1..executions do
@@ -52,7 +52,7 @@ defmodule GraphConn.ActionApi.HandlerTest do
 
   test "second action call with the same req_id is returing cached result" do
     params = %{"other_handler" => "Echo", "command" => "ls", "sleep" => 40}
-    executions = 2
+    executions = 3
     req_id = UUID.uuid4()
 
     for _ <- 1..executions do
