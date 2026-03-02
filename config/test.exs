@@ -48,6 +48,22 @@ config :graph_conn, ActionHandler,
     ]
   ]
 
+config :graph_conn, GraphConn.Test.EventHandler,
+  url: "http://localhost:8081",
+  insecure: true,
+  ws_ping: [
+    interval_in_ms: 2_000,
+    reconnect_after_missing_pings: 3
+  ],
+  auth: [
+    credentials: [
+      client_id: "event_handler",
+      client_secret: "event_handler_secret",
+      username: "event_handler_username",
+      password: "event_handler_password"
+    ]
+  ]
+
 config :graph_conn, :mock,
   capabilities: %{
     "ExecuteCommand" => %{

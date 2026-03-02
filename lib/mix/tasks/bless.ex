@@ -19,7 +19,10 @@ defmodule Mix.Tasks.Bless do
     [
       {"compile", ["--warnings-as-errors", "--force"]},
       {"format", ["--check-formatted"]},
+      {"deps.audit", []},
+      {"sobelow", ["--config", "--skip", "--exit", "Low"]},
       {"coveralls.html", []},
+      # {"credo", []},
       {"dialyzer", []},
       {"docs", []}
     ]

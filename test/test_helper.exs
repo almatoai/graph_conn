@@ -21,6 +21,10 @@ end
 |> TestActionHandler.start_link()
 
 :graph_conn
+|> Application.get_env(GraphConn.Test.EventHandler)
+|> GraphConn.Test.EventHandler.start_link()
+
+:graph_conn
 |> Application.get_env(GraphConn.TestConn)
 |> ActionInvoker.start_link()
 

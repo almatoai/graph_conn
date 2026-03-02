@@ -55,6 +55,20 @@ defmodule GraphConn.Test.MockServer do
     ]
   end
 
+  @doc """
+  Returns credentials that Mock server will accept as valid for any connection
+  that will invoke REST only commands or events-ws api in a events handler role.
+  """
+  @spec valid_event_handler_credentials :: Keyword.t()
+  def valid_event_handler_credentials do
+    [
+      client_id: "event_handler",
+      client_secret: "event_handler_secret",
+      username: "event_handler_username",
+      password: "event_handler_password"
+    ]
+  end
+
   @spec inject_local_config({atom(), module()}, atom(), Keyword.t()) :: :ok
   def inject_local_config({app, mod}, local_fun_name, config \\ []) do
     port = Keyword.get(config, :port, @default_port)
@@ -80,6 +94,7 @@ defmodule GraphConn.Test.MockServer do
       {:_,
        [
          {"/api/0.9/action-ws/[...]", Test.MockSocket, []},
+         {"/api/6.1/events-ws/[...]", Test.EventsMockSocket, []},
          {:_, Plug.Cowboy.Handler, {Test.MockRouter, []}}
        ]}
     ]
