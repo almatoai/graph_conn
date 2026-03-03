@@ -1,3 +1,9 @@
+# 1.9.7
+
+## Change
+
+- Remove audit and sobelow checks from `mix bless` task
+
 # 1.9.6
 
 ## Enhancement
