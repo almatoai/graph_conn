@@ -16,6 +16,7 @@ config :graph_conn, insecure: true
 
 config :graph_conn, GraphConn.TestConn,
   url: "http://localhost:8081",
+  # auto_connect: true, # true | false | :just_versions
   insecure: true,
   timeout: 30_000,
   ws_ping: [

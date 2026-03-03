@@ -1,3 +1,10 @@
+# 1.9.6
+
+## Enhancement
+
+- Add `auto_connect` option in graph_conn that accepts `true`, `false` or `:just_versions`
+- Add `events-ws` handler
+
 # 1.9.5
 
 ## Enhancement

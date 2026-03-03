@@ -31,6 +31,37 @@ defmodule GraphConnTest do
                assert_receive {:EXIT, ^pid, :shutdown}
              end) =~ ~r/\(stop\) \:wrong_credentials/
     end
+
+    test "can just get versions with no credentials in config" do
+      config =
+        :graph_conn
+        |> Application.get_env(TestConn)
+        |> Keyword.delete(:auth)
+        |> Keyword.put(:auto_connect, :just_versions)
+
+      assert {:ok, pid} = _start_connection(config)
+      assert_receive {:conn_status_changed, :got_api_versions}
+      refute_receive {:conn_status_changed, :ready}
+      assert :got_api_versions = TestConn.status()
+
+      assert :ok = TestConn.stop()
+      refute Process.alive?(pid)
+    end
+
+    test "can just start process without trying to get versions" do
+      config =
+        :graph_conn
+        |> Application.get_env(TestConn)
+        |> Keyword.put(:auto_connect, false)
+
+      assert {:ok, pid} = _start_connection(config)
+      refute_receive {:conn_status_changed, :got_api_versions}
+      refute_receive {:conn_status_changed, :ready}
+      assert {:disconnected, :started} = TestConn.status()
+
+      assert :ok = TestConn.stop()
+      refute Process.alive?(pid)
+    end
   end
 
   describe "execute/2" do
