@@ -1,3 +1,10 @@
+# 1.9.8
+
+## Bug fix
+
+- Request now internally normalizes header names to avoid erroneous addition of 'Authorization'
+  header if one is already present, albeit with different casing.
+
 # 1.9.7
 
 ## Change

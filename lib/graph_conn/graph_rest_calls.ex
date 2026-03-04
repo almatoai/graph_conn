@@ -152,6 +152,7 @@ defmodule GraphConn.GraphRestCalls do
 
       request
       |> _inject_namespace(namespace)
+      |> _normalize_request_headers()
       |> _inject_token(token)
       |> _shoot(base_name, config, opts)
       |> _process_response()
@@ -173,12 +174,22 @@ defmodule GraphConn.GraphRestCalls do
   defp _inject_namespace(%Request{path: path} = request, namespace),
     do: %Request{request | path: namespace <> path}
 
+  @spec _normalize_request_headers(Request.t()) :: Request.t()
+  defp _normalize_request_headers(%Request{headers: headers} = request),
+    do: %Request{
+      request
+      | headers:
+          Map.new(headers, fn {name, value} ->
+            {name |> to_string() |> String.downcase(), value}
+          end)
+    }
+
   @spec _inject_token(Request.t(), nil | String.t()) :: Request.t()
   defp _inject_token(%Request{} = request, nil),
     do: request
 
   defp _inject_token(%Request{headers: headers} = request, token),
-    do: %Request{request | headers: Map.put_new(headers, "Authorization", "Bearer " <> token)}
+    do: %Request{request | headers: Map.put_new(headers, "authorization", "Bearer " <> token)}
 
   defp _shoot(%Request{} = request, base_name, config, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, Keyword.get(config, :timeout, 5_000))

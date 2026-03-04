@@ -80,6 +80,17 @@ defmodule GraphConn.Test.MockRouter do
     _success(conn, GraphConn.Mock.get_applicabilities())
   end
 
+  # Echos back collected map of request headers
+  get "/api/:_/action/test-only/headers" do
+    headers =
+      conn.req_headers
+      |> Enum.reduce(%{}, fn {name, value}, acc ->
+        Map.update(acc, name, [value], fn values -> values ++ [value] end)
+      end)
+
+    _success(conn, headers)
+  end
+
   defp _apis do
     %{
       "action" => %{
