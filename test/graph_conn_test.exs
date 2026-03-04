@@ -89,6 +89,16 @@ defmodule GraphConnTest do
       assert {:ok, %Response{body: %{}}} = TestConn.execute(:action, request)
     end
 
+    test "does not duplicate authorization header when request already has one with different casing" do
+      request = %Request{
+        path: "test-only/headers",
+        headers: %{"authorization" => "Bearer override_token"}
+      }
+
+      assert {:ok, %Response{body: body}} = TestConn.execute(:action, request)
+      assert ["Bearer override_token"] == body["authorization"]
+    end
+
     test "refreshes token and retries call if token is expired" do
       true = :ets.insert(TestConn, {:token, "wrong_token"})
 
