@@ -103,10 +103,30 @@ defmodule GraphConnTest do
       true = :ets.insert(TestConn, {:token, "wrong_token"})
 
       request = %Request{
-        path: "capabilities"
+        path: "app/some_dummy_config/handlers"
       }
 
-      assert {:ok, %Response{body: %{}}} = TestConn.execute(:action, request)
+      assert {:ok, %Response{body: [%{}]}} = TestConn.execute(:action, request)
+
+      # Assert that token has been refreshed
+      assert [{:token, "action_invoker"}] == :ets.lookup(TestConn, :token)
+    end
+
+    test "doesn't refresh token and retry call if on behalf auth is used" do
+      # Setting the token to an invalid value is per-se not relevant, but we need to make sure
+      # that no refresh is performed.
+      :ets.insert(TestConn, {:token, "token_wont_be_refreshed"})
+
+      request = %Request{
+        path: "app/some_dummy_config/handlers",
+        headers: %{authorization: "wrong_token"}
+      }
+
+      # Assert that this doesn't cause infinite loop and returns the correct response
+      assert {:ok, %Response{code: 401}} = TestConn.execute(:action, request)
+
+      # Assert that token has *not* been refreshed
+      assert [{:token, "token_wont_be_refreshed"}] == :ets.lookup(TestConn, :token)
     end
 
     test "opens ws connection on demand" do
