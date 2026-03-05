@@ -78,17 +78,23 @@ defmodule GraphConn.ConnectionManager do
     |> GenServer.cast({:open_ws_connection, target_api})
   end
 
-  defp _execute_rest(base_name, target_api, request, opts) do
+  defp _execute_rest(base_name, target_api, request, opts, attempt \\ 1) do
     case GraphRestCalls.execute(base_name, target_api, request, opts) do
-      {:ok, %Response{code: 401}} ->
-        Logger.warning("Token has unexpectedly expired. Refreshing token and retrying call...")
+      {:ok, %Response{code: 401}} = result ->
+        # Don't refresh token if request is made on behalf of another entity or if we've already
+        # tried refreshing once, to avoid infinite loop in case of other auth issues.
+        if Request.on_behalf_auth?(request) or attempt > 1 do
+          result
+        else
+          Logger.warning("Token has unexpectedly expired. Refreshing token and retrying call...")
 
-        :ok =
-          base_name
-          |> _name()
-          |> GenServer.call(:refresh_token)
+          :ok =
+            base_name
+            |> _name()
+            |> GenServer.call(:refresh_token)
 
-        _execute_rest(base_name, target_api, request, opts)
+          _execute_rest(base_name, target_api, request, opts, attempt + 1)
+        end
 
       other ->
         other

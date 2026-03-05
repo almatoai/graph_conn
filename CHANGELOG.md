@@ -4,6 +4,8 @@
 
 - Request now internally normalizes header names to avoid erroneous addition of 'Authorization'
   header if one is already present, albeit with different casing.
+- For requests with expired provided authorization header (on-behalf auth), no token refresh is
+  attempted to prevent an infinite loop.
 
 # 1.9.7
 
