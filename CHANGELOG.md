@@ -1,3 +1,10 @@
+# Unreleased
+
+## Change
+
+- `config/dev.exs` now reads `ActionInvoker.url` and `ActionHandler.url`
+  from `INVOKER_URL` and `HANDLER_URL` env vars with the prior literals
+  as defaults.
 # 1.9.8
 
 ## Bug fix
