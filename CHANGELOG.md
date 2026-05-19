@@ -5,6 +5,11 @@
 - `config/dev.exs` now reads `ActionInvoker.url` and `ActionHandler.url`
   from `INVOKER_URL` and `HANDLER_URL` env vars with the prior literals
   as defaults.
+
+## Enhancement
+
+- Prevent warnings in compile time if ActionHandler doesn't return `{:error, error}` from `execute/3` callback
+
 # 1.9.8
 
 ## Bug fix

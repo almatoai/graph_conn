@@ -240,8 +240,8 @@ if Code.ensure_loaded?(Cachex) do
         defp _execute_action(req_id, capability, params) do
           Logger.info("[ActionHandler] Executing #{inspect(capability)}: #{inspect(params)}")
 
-          req_id
-          |> execute(capability, params)
+          __MODULE__
+          |> apply(:execute, [req_id, capability, params])
           |> case do
             {:ok, response} ->
               Jason.encode!(response)
