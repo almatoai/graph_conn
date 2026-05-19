@@ -3,6 +3,7 @@ defmodule GraphConn.MixProject do
 
   @mix_env Mix.env()
 
+  @spec project() :: keyword()
   def project do
     [
       app: :graph_conn,
@@ -12,15 +13,17 @@ defmodule GraphConn.MixProject do
       test_coverage: [tool: ExCoveralls],
       dialyzer: [
         plt_add_deps: :apps_direct,
-        plt_add_apps: [:mix, :plug, :cowboy, :jason, :mint, :public_key]
+        plt_add_apps: [:mix, :plug, :cowboy, :jason, :mint, :public_key, :credo, :ranch]
       ],
       name: "GraphConn",
       docs: _docs(),
       deps: _deps(),
+      aliases: _aliases(),
       elixirc_paths: _elixirc_paths(Mix.env())
     ]
   end
 
+  @spec application() :: keyword()
   def application do
     [
       extra_applications: [:logger, :ssl]
@@ -28,6 +31,7 @@ defmodule GraphConn.MixProject do
     |> _start_server(@mix_env)
   end
 
+  @spec cli() :: keyword()
   def cli do
     [
       preferred_envs: [
@@ -77,6 +81,29 @@ defmodule GraphConn.MixProject do
   defp _docs do
     [
       output: "doc"
+    ]
+  end
+
+  # Ignored advisories — upstream has no patched version yet. Re-evaluate when
+  # cowlib publishes a fix.
+  #   GHSA-g2wm-735q-3f56 — cowlib: cookie request header injection (no patch yet)
+  @ignored_advisories "GHSA-g2wm-735q-3f56"
+
+  # `bless` is an alias (not a Mix.Task module) so the opinionated checks below
+  # don't leak to apps that depend on this library. `Mix.Tasks.Bless` keeps a
+  # minimal universal pipeline for the same reason.
+  defp _aliases do
+    [
+      bless: [
+        "compile --warnings-as-errors --force",
+        "format --check-formatted",
+        "credo --strict",
+        "sobelow --exit low",
+        "deps.audit --ignore-advisory-ids #{@ignored_advisories}",
+        "coveralls.html",
+        "dialyzer",
+        "docs"
+      ]
     ]
   end
 

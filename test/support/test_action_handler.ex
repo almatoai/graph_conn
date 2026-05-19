@@ -33,7 +33,7 @@ defmodule TestActionHandler do
   end
 
   @impl GraphConn.ActionApi.Handler
-  @spec default_execution_timeout(String.t()) :: non_neg_integer()
+  @spec default_execution_timeout(capability :: String.t()) :: non_neg_integer()
   def default_execution_timeout("ExecuteCommand"),
     do: 10_000
 

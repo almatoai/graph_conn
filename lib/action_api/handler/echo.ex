@@ -1,4 +1,13 @@
 defmodule GraphConn.ActionApi.Handler.Echo do
+  @moduledoc """
+  Trivial action handler used in tests. Echoes its params back, with optional
+  `sleep`/`return_error`/`raise` hooks to exercise error and timing paths.
+  """
+
+  @doc """
+  Echoes `params` back. Special keys: `"return_error"` returns `{:error, ...}`,
+  `"sleep"` blocks for the given milliseconds before responding.
+  """
   @spec execute(params :: map()) ::
           :ok
           | {:ok, any()}

@@ -5,7 +5,7 @@ defmodule GraphConn.MockTest do
   describe "capabilities" do
     test "returns default capabilities from config" do
       assert Application.get_env(:graph_conn, :mock)[:capabilities] == Mock.get_capabilities()
-      assert Enum.count(Mock.get_capabilities()) > 0
+      refute Enum.empty?(Mock.get_capabilities())
     end
 
     test "returns default and added capabilities" do
@@ -60,7 +60,7 @@ defmodule GraphConn.MockTest do
                  "command" => %{}
                },
                "optionalParameters" => %{
-                 "timeout" => %{"default" => 60000}
+                 "timeout" => %{"default" => 60_000}
                }
              }
            } == Mock.convert_capabilities_from_json(json)

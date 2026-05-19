@@ -242,7 +242,7 @@ defmodule GraphConnTest do
   end
 
   # it takes some time for pid to die, so we need to retry
-  defp _start_connection(config \\ :from_config) do
+  defp _start_connection(config) do
     case TestConn.start_supervisor(config, %{forward_to: self()}) do
       {:ok, pid} ->
         assert Process.alive?(pid)
@@ -250,7 +250,7 @@ defmodule GraphConnTest do
 
       {:error, {:already_started, pid}} ->
         Process.exit(pid, :we_need_new_connection)
-        _start_connection()
+        _start_connection(config)
     end
   end
 end

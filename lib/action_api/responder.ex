@@ -1,10 +1,23 @@
 defmodule GraphConn.ActionApi.Responder do
+  @moduledoc """
+  Holds pending action responses keyed by request id.
+
+  When the action-ws upstream takes longer than the caller's timeout, the
+  invoker stores its `from` reference here so that a later upstream response
+  can still be returned via `GenServer.reply/2`. Also handles resends after a
+  delay when the connection drops mid-flight.
+  """
+
   use GenServer
   require Logger
 
+  @doc "Returns the registered process name of the responder for `base_name`."
+  @spec name(base_name :: atom()) :: module()
   def name(base_name),
     do: Module.concat(base_name, Responder)
 
+  @doc false
+  @spec start_link(base_name :: atom()) :: GenServer.on_start()
   def start_link(base_name),
     do: GenServer.start_link(__MODULE__, base_name, name: name(base_name))
 
@@ -12,6 +25,12 @@ defmodule GraphConn.ActionApi.Responder do
   def init(base_name),
     do: {:ok, %{base_name: base_name, responses: %{}}}
 
+  @doc """
+  Sends `response` via action-ws and registers it for resend after `resend_after`
+  ms in case the upstream doesn't ack.
+  """
+  @spec return_response(GraphConn.Request.t(), base_name :: atom(), resend_after :: pos_integer()) ::
+          term()
   def return_response(%GraphConn.Request{} = response, base_name, resend_after) do
     base_name
     |> name()
@@ -20,7 +39,8 @@ defmodule GraphConn.ActionApi.Responder do
     GraphConn.execute(base_name, :"action-ws", response)
   end
 
-  @spec response_acked(module(), String.t()) :: :ok
+  @doc "Cancels any pending resend for `req_id` once it has been acked upstream."
+  @spec response_acked(base_name :: module(), req_id :: String.t()) :: :ok
   def response_acked(base_name, req_id) do
     base_name
     |> name()

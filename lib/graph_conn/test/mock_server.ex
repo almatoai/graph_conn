@@ -6,7 +6,8 @@ defmodule GraphConn.Test.MockServer do
 
   @default_port 8081
 
-  @spec start_link(Keyword.t()) :: Supervisor.on_start()
+  @doc false
+  @spec start_link(config :: Keyword.t()) :: Supervisor.on_start()
   def start_link(config \\ []),
     do: Supervisor.start_link(__MODULE__, config, name: __MODULE__)
 
@@ -69,7 +70,12 @@ defmodule GraphConn.Test.MockServer do
     ]
   end
 
-  @spec inject_local_config({atom(), module()}, atom(), Keyword.t()) :: :ok
+  @doc false
+  @spec inject_local_config(
+          app_mod :: {atom(), module()},
+          local_fun_name :: atom(),
+          config :: Keyword.t()
+        ) :: :ok
   def inject_local_config({app, mod}, local_fun_name, config \\ []) do
     port = Keyword.get(config, :port, @default_port)
 

@@ -6,7 +6,7 @@ defmodule GraphConn.Tools do
   @doc """
   Converts value to integer if it is binary or returns it as-is
   """
-  @spec to_integer(String.t() | integer()) :: integer()
+  @spec to_integer(value :: String.t() | integer()) :: integer()
   def to_integer(value) when is_binary(value), do: String.to_integer(value)
   def to_integer(value) when is_integer(value), do: value
 end

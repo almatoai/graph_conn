@@ -5,10 +5,16 @@
 - `config/dev.exs` now reads `ActionInvoker.url` and `ActionHandler.url`
   from `INVOKER_URL` and `HANDLER_URL` env vars with the prior literals
   as defaults.
+- `mix bless` now runs `credo --strict`, `sobelow --exit low`, and
+  `deps.audit` (matches sibling Elixir apps). `.credo.exs` adds two
+  project-specific custom checks under `test/support/credo_checks/`:
+  `PrivateFunctionUnderscore` (defp `_name` rule) and `NoPipeInsideCall`.
 
 ## Enhancement
 
 - Prevent warnings in compile time if ActionHandler doesn't return `{:error, error}` from `execute/3` callback
+- Add `@moduledoc` to public lib modules; add `@spec` on previously
+  unannotated public functions to enable `credo --strict`.
 
 # 1.9.8
 

@@ -6,7 +6,7 @@ defmodule GraphConn.Test.EventHandler do
   use GraphConn.EventHandler
 
   @impl GraphConn.EventHandler
-  def register() do
+  def register do
     filter = "&(element.ogit/_type = ogit/Automation/AutomationIssue)"
 
     %{

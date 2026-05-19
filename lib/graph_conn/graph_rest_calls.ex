@@ -1,5 +1,14 @@
 defmodule GraphConn.GraphRestCalls do
-  alias GraphConn.{Request, Response, ResponseError, Instrumenter}
+  @moduledoc """
+  Low-level REST calls against the connected Graph server.
+
+  Provides `get_versions/1` (discovers available APIs at startup) and `execute/4`
+  (issues an authenticated request against a specific API version). Used
+  internally by `GraphConn.ConnectionManager`; not part of the public client
+  API.
+  """
+
+  alias GraphConn.{Instrumenter, Request, Response, ResponseError}
   require Logger
 
   @type versions() :: %{atom() => %{path: String.t(), subprotocol: String.t()}}
@@ -42,7 +51,8 @@ defmodule GraphConn.GraphRestCalls do
          variables: %{path: "/api/6/variables/", protocol: "", subprotocol: "6"}
        }}
   """
-  @spec get_versions(module(), Keyword.t()) :: {:ok, versions()} | {:error, any()}
+  @spec get_versions(base_name :: module(), config :: Keyword.t()) ::
+          {:ok, versions()} | {:error, any()}
   def get_versions(base_name, config) do
     Logger.info("Getting supported Graph API versions...")
 
@@ -59,7 +69,8 @@ defmodule GraphConn.GraphRestCalls do
   # we expect small and finite number of apis in versions response,
   # so it's safe to convert them to atoms
   # sobelow_skip ["DOS.StringToAtom"]
-  @spec _get_versions(Request.t(), module(), Keyword.t()) :: {:ok, versions()} | {:error, any()}
+  @spec _get_versions(Request.t(), base_name :: module(), config :: Keyword.t()) ::
+          {:ok, versions()} | {:error, any()}
   defp _get_versions(%Request{} = request, base_name, config) do
     request
     |> _shoot(base_name, config)
@@ -87,8 +98,11 @@ defmodule GraphConn.GraphRestCalls do
 
   - `expires_at` in response is unix time in milliseconds.
   """
-  @spec authenticate(module(), Keyword.t(), %{atom() => %{atom() => String.t()}}) ::
-          {:ok, %{token: String.t(), expires_at: pos_integer()}} | {:error, any()}
+  @spec authenticate(
+          base_name :: module(),
+          config :: Keyword.t(),
+          apis :: %{atom() => %{atom() => String.t()}}
+        ) :: {:ok, %{token: String.t(), expires_at: pos_integer()}} | {:error, any()}
   def authenticate(base_bame, config, %{auth: %{path: auth_namespace}}) do
     Logger.info("Authenticating...")
 
@@ -136,7 +150,12 @@ defmodule GraphConn.GraphRestCalls do
     {:error, "missing :auth key with :path in #{inspect(apis)}"}
   end
 
-  @spec execute(module(), atom(), Request.t(), Keyword.t()) ::
+  @spec execute(
+          base_name :: module(),
+          target_api :: atom(),
+          Request.t(),
+          opts :: Keyword.t()
+        ) ::
           {:ok, Response.t()}
           | {:error, ResponseError.t()}
           | {:error, {:unknown_api, [any()]}}
@@ -221,28 +240,23 @@ defmodule GraphConn.GraphRestCalls do
     "#{transport}://#{config[:host]}:#{config[:port]}#{path}?#{URI.encode_query(query)}"
   end
 
-  @spec _convert_headers(map(), String.t()) :: [
+  @spec _convert_headers(headers :: map(), body :: String.t()) :: [
           {header_name :: String.t(), header_value :: String.t()}
         ]
   defp _convert_headers(headers, body) do
     json = "application/json"
 
-    if byte_size(body) > 0 do
-      headers
-      |> Map.merge(%{
-        "accept" => json,
-        "content-type" => json
-      })
-    else
-      headers
-      |> Map.merge(%{
-        "accept" => json
-      })
-    end
+    extras =
+      if byte_size(body) > 0,
+        do: %{"accept" => json, "content-type" => json},
+        else: %{"accept" => json}
+
+    headers
+    |> Map.merge(extras)
     |> Enum.into([])
   end
 
-  @spec _process_response(Finch.Response.t() | map()) ::
+  @spec _process_response(response :: Finch.Response.t() | map()) ::
           {:ok, Response.t()} | {:error, ResponseError.t()}
   defp _process_response(%Finch.Response{body: body} = response) do
     resp =

@@ -43,14 +43,16 @@ if Code.ensure_loaded?(Cachex) do
 
         @doc false
         @spec _task_supervisor_name() :: module()
-        def _task_supervisor_name(),
+        def _task_supervisor_name,
           do: Module.concat(__MODULE__, TaskSupervisor)
 
         @doc false
         @spec _request_cache_name() :: module()
-        def _request_cache_name(),
+        def _request_cache_name,
           do: Module.concat(__MODULE__, RequestCache)
 
+        @doc "Starts the action handler supervision tree."
+        @spec start_link(config :: nil | Keyword.t()) :: Supervisor.on_start()
         def start_link(config \\ nil) do
           Supervisor.start_link(__MODULE__, _put_config(config), name: __MODULE__)
         end
@@ -158,22 +160,7 @@ if Code.ensure_loaded?(Cachex) do
             task_pid = self()
 
             _request_cache_name()
-            |> Cachex.transaction([req_id], fn worker ->
-              worker
-              |> Cachex.get(req_id)
-              |> case do
-                {:ok, nil} ->
-                  Cachex.put(worker, req_id, {:in_progress, []})
-                  :execute_action
-
-                {:ok, {:in_progress, waiting_tasks}} ->
-                  Cachex.put(worker, req_id, {:in_progress, [task_pid | waiting_tasks]})
-                  :wait
-
-                {:ok, response} ->
-                  response
-              end
-            end)
+            |> Cachex.transaction([req_id], &_claim_or_queue(&1, req_id, task_pid))
             |> tap(fn _ ->
               GraphConn.execute(__MODULE__, :"action-ws", %GraphConn.Request{
                 body: %{id: req_id, type: "acknowledged", code: 200, message: ""}
@@ -192,6 +179,23 @@ if Code.ensure_loaded?(Cachex) do
                 Logger.info("Cache hit. Returning cached response...")
                 _respond_with(req_id, response)
             end
+          end
+        end
+
+        defp _claim_or_queue(worker, req_id, task_pid) do
+          worker
+          |> Cachex.get(req_id)
+          |> case do
+            {:ok, nil} ->
+              Cachex.put(worker, req_id, {:in_progress, []})
+              :execute_action
+
+            {:ok, {:in_progress, waiting_tasks}} ->
+              Cachex.put(worker, req_id, {:in_progress, [task_pid | waiting_tasks]})
+              :wait
+
+            {:ok, response} ->
+              response
           end
         end
 
@@ -254,12 +258,15 @@ if Code.ensure_loaded?(Cachex) do
           end
         end
 
+        @doc false
         def default_execution_timeout(_capability),
           do: 60_000
 
+        @doc false
         def resend_response_timeout,
           do: 3_000
 
+        @doc false
         def execute(_req_id, capability, _params) do
           Logger.warning("[ActionHandler] Unhandled capability received: #{capability}")
           {:error, %{code: 404, message: "Unhandled capability #{inspect(capability)}"}}

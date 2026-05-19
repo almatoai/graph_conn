@@ -94,8 +94,8 @@ defmodule GraphConn.ActionApi.Invoker do
       @behaviour GraphConn
       alias GraphConn.ActionApi
       alias GraphConn.ActionApi.Invoker.RequestRegistry
-      alias GraphConn.ActionApi.Invoker.State, as: InvokerState
       alias GraphConn.ActionApi.Invoker.RequestRegistry.Local, as: LocalRequestRegistry
+      alias GraphConn.ActionApi.Invoker.State, as: InvokerState
       require Logger
 
       @ack_timeout 3_000
@@ -131,6 +131,8 @@ defmodule GraphConn.ActionApi.Invoker do
         |> Application.get_env(__MODULE__)
       end
 
+      @doc "Starts the action invoker supervision tree."
+      @spec start_link(config :: nil | Keyword.t()) :: Supervisor.on_start()
       def start_link(config \\ nil) do
         Supervisor.start_link(__MODULE__, config || _get_config(), name: __MODULE__)
       end
@@ -143,7 +145,7 @@ defmodule GraphConn.ActionApi.Invoker do
         do: GraphConn.status(__MODULE__)
 
       # Invokes `fun` function yielding client state to it.
-      defp with_state(fun) do
+      defp _with_state(fun) do
         {response, new_state} =
           __MODULE__
           |> GraphConn.get_client_state()
@@ -155,7 +157,8 @@ defmodule GraphConn.ActionApi.Invoker do
 
       @impl GraphConn
       @doc false
-      # get capabilities and applicabilities only when invoker was just :initialized and connection status is :ready now.
+      # get capabilities and applicabilities only when invoker was just :initialized
+      # and connection status is :ready now.
       def on_status_change(:ready, %InvokerState{status: :initialized} = state) do
         %{}
         |> _inject_capabilities()
@@ -168,7 +171,7 @@ defmodule GraphConn.ActionApi.Invoker do
               |> Map.put(:status, :ready)
               |> Map.merge(token)
 
-            with_state(fn
+            _with_state(fn
               %InvokerState{} -> {:ok, new_state}
             end)
 
@@ -186,7 +189,7 @@ defmodule GraphConn.ActionApi.Invoker do
       @impl GraphConn
       @doc false
       def on_status_change(:"action-ws", status, %InvokerState{ws_status: :initialized} = state) do
-        with_state(fn
+        _with_state(fn
           %InvokerState{} -> {:ok, %{state | ws_status: status}}
         end)
       end
@@ -263,12 +266,12 @@ defmodule GraphConn.ActionApi.Invoker do
       def available_applicabilities,
         do: _state_of(fn state -> state.applicabilities end)
 
-      @spec _state_of((State.t() -> response :: any())) ::
+      @spec _state_of(fun :: (State.t() -> response :: any())) ::
               response ::
               %{String.t() => map()}
               | {:error, {:connection_not_ready, ActionApi.execution_error()}}
       defp _state_of(fun) do
-        with_state(fn
+        _with_state(fn
           %InvokerState{status: :ready} = state ->
             {fun.(state), state}
 
@@ -282,7 +285,7 @@ defmodule GraphConn.ActionApi.Invoker do
 
       For unknown `capability_name` it returns empty map.
       """
-      @spec capability_defaults(String.t()) :: %{String.t() => any()}
+      @spec capability_defaults(capability_name :: String.t()) :: %{String.t() => any()}
       def capability_defaults(capability_name) do
         case available_capabilities() do
           %{} = capabilities ->
@@ -303,7 +306,7 @@ defmodule GraphConn.ActionApi.Invoker do
       def reconfigure do
         Logger.info("[ActionInvoker] Reconfiguring...")
 
-        with_state(fn
+        _with_state(fn
           %InvokerState{} = state ->
             new_state =
               %{}
@@ -326,7 +329,13 @@ defmodule GraphConn.ActionApi.Invoker do
       IMPORTANT! If "timeout" is provided in params it MUST be in seconds (since
       defaults are in seconds).
       """
-      @spec execute(String.t(), String.t(), String.t(), map(), Keyword.t()) ::
+      @spec execute(
+              ticket_id :: String.t(),
+              action_handler_id :: String.t(),
+              capability_name :: String.t(),
+              params :: map(),
+              opts :: Keyword.t()
+            ) ::
               :ok
               | {:ok, response :: any()}
               | {:error, req_id :: String.t(), ActionApi.execution_error()}
@@ -380,7 +389,12 @@ defmodule GraphConn.ActionApi.Invoker do
         |> Map.merge(params)
       end
 
-      @spec _execute(ActionApi.Request.t(), pos_integer(), pos_integer()) ::
+      @spec _execute(
+              ActionApi.Request.t(),
+              ack_timeout :: pos_integer(),
+              attempt :: pos_integer(),
+              last_call? :: boolean()
+            ) ::
               :ok
               | {:ok, response :: any()}
               | {:error, request_id :: String.t(), ActionApi.execution_error()}
@@ -469,7 +483,7 @@ defmodule GraphConn.ActionApi.Invoker do
         end
       end
 
-      @spec _inject_capabilities(map()) :: map()
+      @spec _inject_capabilities(state :: map()) :: map()
       defp _inject_capabilities(%{} = token) do
         request = %GraphConn.Request{path: "capabilities"}
 
@@ -483,7 +497,7 @@ defmodule GraphConn.ActionApi.Invoker do
         end
       end
 
-      @spec _inject_applicabilities(map()) :: map()
+      @spec _inject_applicabilities(state :: map()) :: map()
       defp _inject_applicabilities(%{capabilities: _} = token) do
         request = %GraphConn.Request{path: "applicabilities"}
 
@@ -508,6 +522,10 @@ defmodule GraphConn.ActionApi.Invoker do
       defp _open_ws_connection(%{} = token),
         do: token
 
+      @doc """
+      Default handler for `configChanged` messages from action-ws. Override in
+      the using module to react to configuration changes.
+      """
       @spec on_config_changed() :: any()
       def on_config_changed,
         do: Logger.warning("[ActionInvoker] Received unhandled configChanged message")

@@ -31,6 +31,7 @@ defmodule GraphConn.ActionApi.Request do
 
   @default_timeout 60_000
 
+  @doc false
   @spec new(build_params()) :: t()
   def new(payload) do
     %__MODULE__{
@@ -42,6 +43,7 @@ defmodule GraphConn.ActionApi.Request do
     }
   end
 
+  @doc false
   @spec _calculate_id(build_params()) :: String.t()
   def _calculate_id(payload) do
     term = {payload.ticket_id, payload.handler, payload.capability, payload.params}
