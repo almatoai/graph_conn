@@ -5,6 +5,8 @@ defmodule GraphConn.Test.EventsMockSocket do
 
   @behaviour :cowboy_websocket
 
+  @doc false
+  @spec init(request :: map(), state :: term()) :: {:cowboy_websocket, map(), map()}
   def init(
         %{headers: %{"sec-websocket-protocol" => "6.1, token-events_" <> client_type}} = request,
         _state
@@ -20,6 +22,8 @@ defmodule GraphConn.Test.EventsMockSocket do
     {:cowboy_websocket, request, state}
   end
 
+  @doc false
+  @spec websocket_init(state :: map()) :: {:ok, map()}
   def websocket_init(state) do
     Registry.TestSockets
     |> Registry.register(state.registry_key, {})
@@ -27,6 +31,8 @@ defmodule GraphConn.Test.EventsMockSocket do
     {:ok, state}
   end
 
+  @doc false
+  @spec websocket_handle(frame :: term(), state :: map()) :: {:ok, map()}
   def websocket_handle(:ping, state) do
     Logger.debug("[EventsMockSocket] Received PING")
 
@@ -58,6 +64,8 @@ defmodule GraphConn.Test.EventsMockSocket do
     end)
   end
 
+  @doc false
+  @spec websocket_info(info :: term(), state :: map()) :: {:reply, {:text, term()}, map()}
   def websocket_info(info, state) do
     {:reply, {:text, info}, state}
   end

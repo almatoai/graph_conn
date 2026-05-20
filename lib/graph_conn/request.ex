@@ -37,7 +37,7 @@ defmodule GraphConn.Request do
   @doc """
   Prefixes the request path with the given namespace if not already present.
   """
-  @spec set_namespace(Request.t(), String.t()) :: Request.t()
+  @spec set_namespace(Request.t(), namespace :: String.t()) :: Request.t()
   def set_namespace(%Request{path: path} = request, namespace),
     do: %Request{request | path: namespace <> path}
 
@@ -47,7 +47,7 @@ defmodule GraphConn.Request do
 
   Does nothing if token is `nil`.
   """
-  @spec set_default_auth(Request.t(), nil | String.t()) :: Request.t()
+  @spec set_default_auth(Request.t(), token :: nil | String.t()) :: Request.t()
   def set_default_auth(%Request{} = request, nil),
     do: request
 

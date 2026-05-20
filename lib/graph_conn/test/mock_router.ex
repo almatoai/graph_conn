@@ -2,6 +2,7 @@ defmodule GraphConn.Test.MockRouter do
   @moduledoc false
 
   use Plug.Router
+  alias GraphConn.Test.MockServer
 
   plug Plug.Logger
 
@@ -50,17 +51,17 @@ defmodule GraphConn.Test.MockRouter do
 
   post "/api/:_/auth/app" do
     config_credentials =
-      GraphConn.Test.MockServer.valid_invoker_credentials()
+      MockServer.valid_invoker_credentials()
       |> Enum.map(fn {key, val} -> {to_string(key), val} end)
       |> Enum.into(%{})
 
     handler_credentials =
-      GraphConn.Test.MockServer.valid_handler_credentials()
+      MockServer.valid_handler_credentials()
       |> Enum.map(fn {key, val} -> {to_string(key), val} end)
       |> Enum.into(%{})
 
     event_handler_credentials =
-      GraphConn.Test.MockServer.valid_event_handler_credentials()
+      MockServer.valid_event_handler_credentials()
       |> Enum.map(fn {key, val} -> {to_string(key), val} end)
       |> Enum.into(%{})
 

@@ -8,6 +8,8 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
   alias GraphConn.ActionApi.Invoker.RequestRegistry.Local, as: LocalRequestRegistry
   require Logger
 
+  @doc "Returns the registered process name of the request registry for `base_name`."
+  @spec name(base_name :: atom()) :: module()
   def name(base_name),
     do: Module.concat(base_name, RequestRegistry)
 
@@ -20,13 +22,15 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
   meaning that it should expect `{:ack, request_id}` and
   `{:response, request_id, response, ack_response}` messages.
   """
-  @spec register(module(), String.t(), module()) :: :ok
+  @spec register(base_name :: module(), request_id :: String.t(), registry :: module()) :: :ok
   def register(base_name, request_id, registry \\ LocalRequestRegistry) do
     base_name
     |> name()
     |> registry.register_self(request_id)
   end
 
+  @doc "Removes the calling process from the registry for `request_id`."
+  @spec unregister(base_name :: atom(), request_id :: String.t(), registry :: module()) :: :ok
   def unregister(base_name, request_id, registry \\ LocalRequestRegistry) do
     base_name
     |> name()
@@ -38,6 +42,7 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
   themselves with `request_id`. This message is sent when Action API
   acks message on it's part.
   """
+  @spec ack(base_name :: atom(), request_id :: String.t(), registry :: module()) :: :ok
   def ack(base_name, request_id, registry \\ LocalRequestRegistry) do
     base_name
     |> name()
@@ -54,6 +59,12 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
 
   This message is sent when Action API nacks message on it's part.
   """
+  @spec nack(
+          base_name :: atom(),
+          request_id :: String.t(),
+          error :: term(),
+          registry :: module()
+        ) :: :ok
   def nack(base_name, request_id, error, registry \\ LocalRequestRegistry) do
     base_name
     |> name()
@@ -68,6 +79,13 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
   Sends `{:response, request_id, response, ack_response}` messages to
   all process that registered themselves with `request_id`.
   """
+  @spec respond(
+          base_name :: atom(),
+          request_id :: String.t(),
+          response :: term(),
+          registry :: module(),
+          attempt :: pos_integer()
+        ) :: :ok
   def respond(base_name, request_id, response, registry \\ LocalRequestRegistry, attempt \\ 1)
 
   def respond(_, request_id, _, _, 6),

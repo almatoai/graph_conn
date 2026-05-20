@@ -111,6 +111,8 @@ defmodule GraphConn do
         |> Application.get_env(__MODULE__)
       end
 
+      @doc false
+      @spec child_spec(opts :: term()) :: Supervisor.child_spec()
       def child_spec(opts) do
         %{
           id: __MODULE__,
@@ -122,7 +124,10 @@ defmodule GraphConn do
       @doc """
       Starts supervision tree for handling requests/responses and pushes from HIRO Graph server.
       """
-      @spec start_supervisor(:from_config | Keyword.t(), map()) :: Supervisor.on_start()
+      @spec start_supervisor(
+              config :: :from_config | Keyword.t(),
+              internal_state :: map()
+            ) :: Supervisor.on_start()
       def start_supervisor(config, internal_state \\ %{})
 
       def start_supervisor(:from_config, internal_state),
@@ -132,7 +137,10 @@ defmodule GraphConn do
           when is_list(config) and is_map(internal_state),
           do: GraphConn.Supervisor.start_link(__MODULE__, {config, internal_state})
 
-      @spec stop(term(), timeout()) :: :ok
+      @doc """
+      Stops the supervision tree for this client.
+      """
+      @spec stop(reason :: term(), timeout :: timeout()) :: :ok
       def stop(reason \\ :normal, timeout \\ :infinity),
         do: GraphConn.Supervisor.stop(__MODULE__, reason, timeout)
 
@@ -152,7 +160,7 @@ defmodule GraphConn do
         do: GraphConn.ConnectionManager.execute(__MODULE__, target_api, request, opts)
 
       # Invokes `fun` function yielding client state to it.
-      defp with_state(fun) do
+      defp _with_state(fun) do
         {response, new_state} =
           __MODULE__
           |> GraphConn.ClientState.get_state()

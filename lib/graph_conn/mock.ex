@@ -1,18 +1,34 @@
 defmodule GraphConn.Mock do
+  @moduledoc """
+  In-process backing store for the mock Graph server.
+
+  Holds capabilities and applicabilities used by the mock application in
+  tests. Initial contents come from `:graph_conn, :mock` application env;
+  tests can add to them at runtime via `put_capabilities/1` and
+  `put_applicabilities/2`.
+  """
+
+  @doc "Returns the currently configured capabilities map."
+  @spec get_capabilities() :: map()
   def get_capabilities do
     Application.get_env(:graph_conn, :mock, [])[:capabilities] || %{}
   end
 
+  @doc "Merges JSON-decoded `new_capabilities` into the stored capabilities."
+  @spec put_capabilities(new_capabilities :: String.t()) :: :ok
   def put_capabilities(new_capabilities) when is_binary(new_capabilities) do
     capabilities = Map.merge(get_capabilities(), convert_capabilities_from_json(new_capabilities))
 
     mock =
-      Application.get_env(:graph_conn, :mock)
+      :graph_conn
+      |> Application.get_env(:mock)
       |> Keyword.put(:capabilities, capabilities)
 
     Application.put_env(:graph_conn, :mock, mock)
   end
 
+  @doc "Returns the currently configured applicabilities map keyed by handler id."
+  @spec get_applicabilities() :: map()
   def get_applicabilities do
     Application.get_env(:graph_conn, :mock, [])[:applicabilities] || %{"action_handler" => %{}}
   end
@@ -20,6 +36,7 @@ defmodule GraphConn.Mock do
   @doc """
   Puts `new_applicabilities` for action handler with "action_handler" id.
   """
+  @spec put_applicabilities(ah_id :: String.t(), new_applicabilities :: String.t()) :: :ok
   def put_applicabilities(ah_id \\ "action_handler", new_applicabilities)
       when is_binary(new_applicabilities) do
     applicabilities =
@@ -29,13 +46,15 @@ defmodule GraphConn.Mock do
       )
 
     mock =
-      Application.get_env(:graph_conn, :mock)
+      :graph_conn
+      |> Application.get_env(:mock)
       |> Keyword.put(:applicabilities, %{ah_id => applicabilities})
 
     Application.put_env(:graph_conn, :mock, mock)
   end
 
   @doc false
+  @spec convert_capabilities_from_json(json :: String.t()) :: map()
   def convert_capabilities_from_json(json) do
     json
     |> Jason.decode!()
@@ -57,6 +76,7 @@ defmodule GraphConn.Mock do
   end
 
   @doc false
+  @spec convert_applicabilities_from_json(json :: String.t()) :: map()
   def convert_applicabilities_from_json(json) do
     json
     |> Jason.decode!()

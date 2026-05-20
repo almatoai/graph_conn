@@ -4,7 +4,7 @@ defmodule GraphConn.WS do
   # :gun wrapper for making connection, ws_upgrade and pushing ws message.
   # Functions from this module are used in WsConnection only.
 
-  alias GraphConn.{Response, Tools, Instrumenter}
+  alias GraphConn.{Instrumenter, Response, Tools}
   require Logger
 
   @doc """
@@ -19,8 +19,11 @@ defmodule GraphConn.WS do
   - `ws_ping`: is a keyword list with `interval_in_ms` in which gun will send ping to server.
   - `protocols`: defaults to `[:http2, :http]`. Note that `http2` can't be upgraded to websocket!
   """
-  @spec connect(String.t() | charlist(), String.t() | pos_integer(), Keyword.t()) ::
-          {:ok, pid()} | {:error, any()}
+  @spec connect(
+          host :: String.t() | charlist(),
+          port :: String.t() | pos_integer(),
+          opts :: Keyword.t()
+        ) :: {:ok, pid()} | {:error, any()}
   def connect(host, port, opts \\ []) do
     host = to_charlist(host)
     port = Tools.to_integer(port)
@@ -31,7 +34,11 @@ defmodule GraphConn.WS do
         _connect(host, port, connect_opts)
 
       proxy_config ->
-        connect_opts = Map.merge(connect_opts, %{host: host, port: port}) |> Enum.into([])
+        connect_opts =
+          connect_opts
+          |> Map.merge(%{host: host, port: port})
+          |> Enum.into([])
+
         _proxy_connect(proxy_config, connect_opts)
     end
   end
@@ -46,8 +53,8 @@ defmodule GraphConn.WS do
         nil
 
       proxy_config ->
-        address = Keyword.fetch!(proxy_config, :address) |> String.to_charlist()
-        transport = Keyword.get(proxy_config, :transport, "tcp") |> String.to_atom()
+        address = proxy_config |> Keyword.fetch!(:address) |> String.to_charlist()
+        transport = proxy_config |> Keyword.get(:transport, "tcp") |> String.to_atom()
         secure? = Keyword.get(proxy_config, :insecure, "false") == "false"
 
         tls_opts =
@@ -57,7 +64,7 @@ defmodule GraphConn.WS do
 
         [
           address: address,
-          port: Keyword.fetch!(proxy_config, :port) |> Tools.to_integer(),
+          port: proxy_config |> Keyword.fetch!(:port) |> Tools.to_integer(),
           protocols: [:http],
           trace: false,
           transport: transport,
@@ -97,8 +104,13 @@ defmodule GraphConn.WS do
     end
   end
 
-  @spec ws_upgrade(pid(), String.t(), String.t(), String.t()) ::
-          {:ok, stream_ref :: reference()} | {:error, any()}
+  @doc false
+  @spec ws_upgrade(
+          conn_pid :: pid(),
+          path :: String.t(),
+          subprotocol :: String.t(),
+          token :: String.t()
+        ) :: {:ok, stream_ref :: reference()} | {:error, any()}
   def ws_upgrade(conn_pid, path, subprotocol, token) do
     mono_start = System.monotonic_time()
 
@@ -130,11 +142,13 @@ defmodule GraphConn.WS do
     response
   end
 
-  @spec ping(pid(), reference()) :: :ok
+  @doc false
+  @spec ping(conn_pid :: pid(), stream_ref :: reference()) :: :ok
   def ping(conn_pid, stream_ref),
     do: :ok = :gun.ws_send(conn_pid, stream_ref, :ping)
 
-  @spec push(pid(), reference(), String.t()) :: :ok
+  @doc false
+  @spec push(conn_pid :: pid(), stream_ref :: reference(), msg :: String.t()) :: :ok
   def push(conn_pid, stream_ref, body) do
     Logger.debug(fn -> "[GraphConn.WS] Pushing #{inspect(body)}" end)
     mono_start = System.monotonic_time()
@@ -152,7 +166,7 @@ defmodule GraphConn.WS do
       )
   end
 
-  @spec _async_response(pid(), reference() | [reference()]) ::
+  @spec _async_response(conn_pid :: pid(), stream_ref :: reference() | [reference()]) ::
           Response.t()
           | {:ok, reference() | [reference()]}
           | {:error, any()}
@@ -196,7 +210,7 @@ defmodule GraphConn.WS do
     end
   end
 
-  @spec _receive_data(pid(), reference(), binary()) ::
+  @spec _receive_data(conn_pid :: pid(), stream_ref :: reference(), acc :: binary()) ::
           {:ok, binary()} | {:error, any()}
   defp _receive_data(conn_pid, stream_ref, response_data \\ "") do
     Logger.debug("Waiting for data")
@@ -219,7 +233,7 @@ defmodule GraphConn.WS do
     end
   end
 
-  @spec _connect_opts(Keyword.t(), charlist()) :: %{atom() => any}
+  @spec _connect_opts(opts :: Keyword.t(), host :: charlist()) :: %{atom() => any}
   defp _connect_opts(opts, host) do
     ws_ping_interval =
       opts
@@ -246,7 +260,7 @@ defmodule GraphConn.WS do
     end
   end
 
-  @spec _transport_opts(charlist()) :: Keyword.t()
+  @spec _transport_opts(host :: charlist()) :: Keyword.t()
   defp _transport_opts(host) do
     ca_cert_file = Application.get_env(:graph_conn, :ca_cert) || :certifi.cacertfile()
 

@@ -1,0 +1,18 @@
+[
+  verbose: false,
+  private: false,
+  # skip: true honors per-function `# sobelow_skip ["Rule"]` annotations.
+  # Used for the two known-safe String.to_atom call sites (server-supplied
+  # API names + config-supplied proxy transport).
+  skip: true,
+  exit: "low",
+  format: "txt",
+  out: "",
+  threshold: "low",
+  # Config.HTTPS — graph_conn is a client library plus a small Plug+Cowboy
+  # test endpoint. It never terminates TLS itself; production callers run
+  # behind TLS-terminating ingress. Phoenix-specific checks (XSS.*,
+  # Config.CSRFRoute) don't apply and are skipped silently with no router.
+  ignore: ["Config.HTTPS"],
+  ignore_files: []
+]

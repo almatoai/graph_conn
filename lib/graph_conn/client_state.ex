@@ -8,6 +8,8 @@ defmodule GraphConn.ClientState do
   defp _name(base_name),
     do: Module.concat(base_name, ClientState)
 
+  @doc false
+  @spec child_spec(opts :: [atom() | map()]) :: Supervisor.child_spec()
   def child_spec(opts) do
     %{
       id: __MODULE__,
@@ -16,18 +18,22 @@ defmodule GraphConn.ClientState do
     }
   end
 
+  @doc false
+  @spec start_link(base_name :: atom(), state :: map()) :: GenServer.on_start()
   def start_link(base_name, state) do
     GenServer.start_link(__MODULE__, state, name: _name(base_name))
   end
 
-  @spec get_state(atom()) :: map()
+  @doc "Returns the current state of the client conn module."
+  @spec get_state(base_name :: atom()) :: map()
   def get_state(base_name) do
     base_name
     |> _name()
     |> GenServer.call(:get_state)
   end
 
-  @spec put_state(atom(), map()) :: :ok
+  @doc "Replaces the stored state with `new_state`."
+  @spec put_state(base_name :: atom(), new_state :: map()) :: :ok
   def put_state(base_name, new_state) do
     base_name
     |> _name()

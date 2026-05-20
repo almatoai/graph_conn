@@ -5,6 +5,8 @@ defmodule GraphConn.Test.MockSocket do
 
   @behaviour :cowboy_websocket
 
+  @doc false
+  @spec init(request :: map(), state :: term()) :: {:cowboy_websocket, map(), map()}
   def init(
         %{headers: %{"sec-websocket-protocol" => "0.9, token-action_" <> client_type}} = request,
         _state
@@ -20,6 +22,8 @@ defmodule GraphConn.Test.MockSocket do
     {:cowboy_websocket, request, state}
   end
 
+  @doc false
+  @spec websocket_init(state :: map()) :: {:ok, map()}
   def websocket_init(state) do
     Registry.TestSockets
     |> Registry.register(state.registry_key, {})
@@ -27,6 +31,8 @@ defmodule GraphConn.Test.MockSocket do
     {:ok, state}
   end
 
+  @doc false
+  @spec websocket_handle(frame :: term(), state :: map()) :: {:ok, map()}
   def websocket_handle(:ping, state) do
     Logger.debug("[MockSocket] Received PING")
 
@@ -83,19 +89,8 @@ defmodule GraphConn.Test.MockSocket do
         }
         |> Jason.encode!()
 
-      Registry.TestSockets
-      |> Registry.dispatch(state.registry_key, fn entries ->
-        for {pid, _} <- entries do
-          Process.send(pid, ack, [])
-        end
-      end)
-
-      Registry.TestSockets
-      |> Registry.dispatch("action_handler", fn entries ->
-        for {pid, _} <- entries do
-          Process.send(pid, Jason.encode!(request), [])
-        end
-      end)
+      _broadcast(state.registry_key, ack)
+      _broadcast("action_handler", Jason.encode!(request))
     else
       nack =
         %{
@@ -106,12 +101,7 @@ defmodule GraphConn.Test.MockSocket do
         }
         |> Jason.encode!()
 
-      Registry.TestSockets
-      |> Registry.dispatch(state.registry_key, fn entries ->
-        for {pid, _} <- entries do
-          Process.send(pid, nack, [])
-        end
-      end)
+      _broadcast(state.registry_key, nack)
     end
   end
 
@@ -146,12 +136,18 @@ defmodule GraphConn.Test.MockSocket do
       %{"type" => "error", "code" => 400, "message" => "invalid action message #{inspect(msg)}"}
       |> Jason.encode!()
 
+    _broadcast(state.registry_key, response)
+  end
+
+  defp _broadcast(registry_key, payload) do
     Registry.TestSockets
-    |> Registry.dispatch(state.registry_key, fn entries ->
-      for {pid, _} <- entries, do: Process.send(pid, response, [])
+    |> Registry.dispatch(registry_key, fn entries ->
+      Enum.each(entries, fn {pid, _} -> Process.send(pid, payload, []) end)
     end)
   end
 
+  @doc false
+  @spec websocket_info(info :: term(), state :: map()) :: {:reply, {:text, term()}, map()}
   def websocket_info(info, state) do
     {:reply, {:text, info}, state}
   end

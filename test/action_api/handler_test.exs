@@ -10,9 +10,9 @@ defmodule GraphConn.ActionApi.HandlerTest do
   test "ah execution is run in parallel" do
     # For each execution we get 2 new processes. Cachex.transaction/3 executes block in a single process, so:
     #
-    # - If one action is executed at least 40ms (sleep), we'll have only 4 actions finished in 180ms, 
+    # - If one action is executed at least 40ms (sleep), we'll have only 4 actions finished in 180ms,
     # thus having 12 processes around.
-    # - If all 10 actions are executed in parallel (out of Cachex transaction), 
+    # - If all 10 actions are executed in parallel (out of Cachex transaction),
     # all 10 actions will finish in 180ms and there shouldn't be new processes around.
 
     procs_before = :erlang.processes() |> MapSet.new()

@@ -1,4 +1,12 @@
 defmodule GraphConn.ActionApi do
+  @moduledoc """
+  Shared types for the ActionAPI (invoker + handler).
+
+  The actual functions are defined in `GraphConn.ActionApi.Invoker` and
+  `GraphConn.ActionApi.Handler`; this module just collects the error/result
+  types they both reference.
+  """
+
   @typedoc """
   Execution error explanation:
 

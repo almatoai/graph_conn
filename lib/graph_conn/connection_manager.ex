@@ -1,4 +1,14 @@
 defmodule GraphConn.ConnectionManager do
+  @moduledoc """
+  Per-client connection supervisor and authentication state holder.
+
+  Owns the auth token (acquired and refreshed via `GraphConn.GraphRestCalls`),
+  the cached set of API versions advertised by the Graph server, and the map
+  of open WebSocket connections. Public functions `execute/3`,
+  `open_ws_connection/2`, and `status/1` are invoked through the
+  `use GraphConn` entrypoint module.
+  """
+
   defmodule State do
     @moduledoc false
 
@@ -17,12 +27,12 @@ defmodule GraphConn.ConnectionManager do
 
   alias GraphConn.{
     ClientState,
-    WsConnections,
-    WsConnection,
     GraphRestCalls,
     Request,
     Response,
-    ResponseError
+    ResponseError,
+    WsConnection,
+    WsConnections
   }
 
   require Logger
@@ -30,15 +40,19 @@ defmodule GraphConn.ConnectionManager do
   @typep version() :: %{path: String.t(), protocol: String.t(), subprotocol: String.t()}
 
   # we need public access to the table so we can change token from test process.
+  @doc false
+  @spec _ets_opts(opts :: list()) :: list()
   if Mix.env() == :test do
-    def _ets_opts(opts), do: [:public | opts]
+    defp _ets_opts(opts), do: [:public | opts]
   else
-    def _ets_opts(opts), do: opts
+    defp _ets_opts(opts), do: opts
   end
 
   defp _name(base_name),
     do: Module.concat(base_name, ConnectionManager)
 
+  @doc false
+  @spec child_spec(opts :: [atom() | Keyword.t()]) :: Supervisor.child_spec()
   def child_spec(opts) do
     %{
       id: __MODULE__,
@@ -47,18 +61,30 @@ defmodule GraphConn.ConnectionManager do
     }
   end
 
+  @doc false
+  @spec start_link(base_name :: atom(), config :: Keyword.t()) :: GenServer.on_start()
   def start_link(base_name, config) do
     GenServer.start_link(__MODULE__, {base_name, config}, name: _name(base_name))
   end
 
-  @spec status(atom()) :: GraphConn.status()
+  @doc "Returns current connection status for `base_name`."
+  @spec status(base_name :: atom()) :: GraphConn.status()
   def status(base_name) do
     base_name
     |> _name()
     |> GenServer.call(:status)
   end
 
-  @spec execute(atom(), atom(), Request.t(), Keyword.t()) ::
+  @doc """
+  Executes `request` against `target_api`. REST APIs go via HTTP; WS APIs are
+  dispatched through the associated WebSocket connection.
+  """
+  @spec execute(
+          base_name :: atom(),
+          target_api :: atom(),
+          Request.t(),
+          opts :: Keyword.t()
+        ) ::
           :ok
           | {:ok, Response.t()}
           | {:error, ResponseError.t()}
@@ -71,7 +97,13 @@ defmodule GraphConn.ConnectionManager do
     end
   end
 
-  @spec open_ws_connection(atom(), atom()) :: :ok | {:error, {:unknown_api, [atom()]}}
+  @doc """
+  Asynchronously opens a WebSocket connection to `target_api` if not already
+  open. Returns `:ok` immediately; status changes are reported via the
+  `on_status_change/3` callback.
+  """
+  @spec open_ws_connection(base_name :: atom(), target_api :: atom()) ::
+          :ok | {:error, {:unknown_api, [atom()]}}
   def open_ws_connection(base_name, target_api) do
     base_name
     |> _name()
@@ -132,37 +164,33 @@ defmodule GraphConn.ConnectionManager do
     do: {:reply, status, state}
 
   def handle_call({:open_ws_connection, target_api}, _from, %State{} = state) do
-    with {:ok, version} <- _get_version(state.base_name, target_api) do
-      [{:config, config}] = :ets.lookup(state.base_name, :config)
-      [{:token, token}] = :ets.lookup(state.base_name, :token)
-      config = Keyword.put(config, :protocols, [:http])
-      client_state = ClientState.get_state(state.base_name)
+    case _get_version(state.base_name, target_api) do
+      {:ok, version} ->
+        [{:config, config}] = :ets.lookup(state.base_name, :config)
+        [{:token, token}] = :ets.lookup(state.base_name, :token)
+        config = Keyword.put(config, :protocols, [:http])
+        client_state = ClientState.get_state(state.base_name)
 
-      conn_pid =
-        WsConnections.start_connection(
-          state.base_name,
-          target_api,
-          config,
-          client_state,
-          version,
-          token
-        )
-        |> case do
-          {:ok, conn_pid} ->
-            _conn_ref = Process.monitor(conn_pid)
-            conn_pid
+        conn_pid =
+          state.base_name
+          |> WsConnections.start_connection(target_api, config, client_state, version, token)
+          |> case do
+            {:ok, conn_pid} ->
+              _conn_ref = Process.monitor(conn_pid)
+              conn_pid
 
-          {:error, {:already_started, conn_pid}} ->
-            conn_pid
-        end
+            {:error, {:already_started, conn_pid}} ->
+              conn_pid
+          end
 
-      state = %{state | ws_connections: Map.put(state.ws_connections, conn_pid, target_api)}
+        state = %{state | ws_connections: Map.put(state.ws_connections, conn_pid, target_api)}
 
-      _update_ets(state.base_name, {target_api, :conn_pid}, conn_pid)
-      _status_changed(target_api, :ready, state)
-      {:reply, {:ok, conn_pid}, state}
-    else
-      no_version_found -> {:reply, no_version_found, state}
+        _update_ets(state.base_name, {target_api, :conn_pid}, conn_pid)
+        _status_changed(target_api, :ready, state)
+        {:reply, {:ok, conn_pid}, state}
+
+      no_version_found ->
+        {:reply, no_version_found, state}
     end
   end
 
@@ -232,7 +260,10 @@ defmodule GraphConn.ConnectionManager do
     {:noreply, state}
   end
 
-  @spec _get_token(State.t(), {:connect | :refresh_token, retry_in_ms :: non_neg_integer()}) ::
+  @spec _get_token(
+          State.t(),
+          flow :: {:connect | :refresh_token, retry_in_ms :: non_neg_integer()}
+        ) ::
           {:noreply, State.t()}
   defp _get_token(%State{} = state, {retry_message, retry_in}) do
     [{:config, config}] = :ets.lookup(state.base_name, :config)
@@ -271,7 +302,7 @@ defmodule GraphConn.ConnectionManager do
     apply(state.base_name, :on_status_change, [api, new_status, client_state])
   end
 
-  @spec _execute_ws(atom(), atom(), Request.t()) ::
+  @spec _execute_ws(base_name :: atom(), target_api :: atom(), Request.t()) ::
           :ok | {:error, {:unknown_api, [atom()]}}
   defp _execute_ws(base_name, target_api, request) do
     with {:ok, conn_pid} <- _get_ws_connection(base_name, target_api) do
@@ -280,7 +311,8 @@ defmodule GraphConn.ConnectionManager do
     end
   end
 
-  @spec _get_ws_connection(atom(), atom()) :: {:ok, pid()} | {:error, {:unknown_api, [atom()]}}
+  @spec _get_ws_connection(base_name :: atom(), target_api :: atom()) ::
+          {:ok, pid()} | {:error, {:unknown_api, [atom()]}}
   defp _get_ws_connection(base_name, target_api) do
     case :ets.lookup(base_name, {target_api, :conn_pid}) do
       [{{^target_api, :conn_pid}, nil}] ->
@@ -298,7 +330,7 @@ defmodule GraphConn.ConnectionManager do
     end
   end
 
-  @spec _get_version(atom(), atom(), pos_integer()) ::
+  @spec _get_version(base_name :: atom(), target_api :: atom(), attempt :: pos_integer()) ::
           {:ok, version()} | {:error, {:unknown_api, [atom()]}}
   defp _get_version(base_name, target_api, attempt \\ 1)
 
@@ -322,7 +354,7 @@ defmodule GraphConn.ConnectionManager do
     end
   end
 
-  @spec _init_ets(atom(), Keyword.t()) :: true
+  @spec _init_ets(base_name :: atom(), config :: Keyword.t()) :: true
   defp _init_ets(base_name, config) do
     opts = [:named_table, read_concurrency: true]
 
@@ -332,14 +364,14 @@ defmodule GraphConn.ConnectionManager do
     _reset_ets(base_name, config)
   end
 
-  @spec _reset_ets(atom(), Keyword.t()) :: true
+  @spec _reset_ets(base_name :: atom(), config :: Keyword.t()) :: true
   defp _reset_ets(base_name, config) do
     _update_ets(base_name, :token, nil)
     _update_ets(base_name, :versions, %{})
     _update_ets(base_name, :config, config)
   end
 
-  @spec _update_ets(atom(), term(), term()) :: true
+  @spec _update_ets(base_name :: atom(), key :: term(), value :: term()) :: true
   defp _update_ets(base_name, key, value) do
     true = :ets.insert(base_name, {key, value})
   end
@@ -354,7 +386,7 @@ defmodule GraphConn.ConnectionManager do
     end
   end
 
-  @spec parse_urls(Keyword.t()) :: Keyword.t()
+  @spec parse_urls(config :: Keyword.t()) :: Keyword.t()
   def parse_urls(config) do
     %URI{
       host: host,

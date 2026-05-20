@@ -23,7 +23,7 @@ defmodule GraphConn.WSTest do
     end
   end
 
-  defp _config() do
+  defp _config do
     :graph_conn
     |> Application.get_env(GraphConn.TestConn)
     |> GraphConn.ConnectionManager.parse_urls()

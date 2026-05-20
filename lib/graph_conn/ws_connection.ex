@@ -2,7 +2,7 @@ defmodule GraphConn.WsConnection do
   @moduledoc false
 
   use GenServer
-  alias GraphConn.{WS, Request, Instrumenter}
+  alias GraphConn.{Instrumenter, Request, WS}
   require Logger
 
   defmodule State do
@@ -32,6 +32,8 @@ defmodule GraphConn.WsConnection do
     |> Module.concat(WsConnection)
   end
 
+  @doc false
+  @spec child_spec(opts :: [term()]) :: Supervisor.child_spec()
   def child_spec(opts) do
     %{
       id: __MODULE__,
@@ -41,13 +43,23 @@ defmodule GraphConn.WsConnection do
     }
   end
 
-  @spec start_link(atom(), atom(), Keyword.t(), map(), map(), String.t()) :: GenServer.on_start()
+  @doc false
+  @spec start_link(
+          base_name :: atom(),
+          api :: atom(),
+          config :: Keyword.t(),
+          internal_state :: map(),
+          version :: map(),
+          token :: String.t()
+        ) :: GenServer.on_start()
   def start_link(base_name, api, config, internal_state, version, token) do
     GenServer.start_link(__MODULE__, {base_name, api, config, internal_state, version, token},
       name: _name(base_name, api)
     )
   end
 
+  @doc false
+  @spec execute(server :: GenServer.server(), Request.t()) :: :ok
   def execute(server, %Request{} = request),
     do: GenServer.cast(server, {:execute, request})
 
@@ -77,7 +89,7 @@ defmodule GraphConn.WsConnection do
     |> URI.encode_query()
   end
 
-  defp _default_ping_config() do
+  defp _default_ping_config do
     [
       interval_in_ms: 2_000,
       reconnect_after_missing_pings: 3
@@ -220,12 +232,13 @@ defmodule GraphConn.WsConnection do
 
   ## Helper functions
 
-  @spec _connect(State.t(), Keyword.t()) :: State.t()
+  @spec _connect(State.t(), config :: Keyword.t()) :: State.t()
   defp _connect(%State{} = state, config) do
     host = Keyword.fetch!(config, :host)
     port = Keyword.fetch!(config, :port)
 
-    WS.connect(host, port, config)
+    host
+    |> WS.connect(port, config)
     |> case do
       {:ok, conn_pid} ->
         Process.monitor(conn_pid)
