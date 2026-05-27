@@ -140,7 +140,7 @@ defmodule GraphConn.GraphRestCalls do
         Logger.error("Authentication error: #{inspect(error)}")
         {:error, error}
 
-      %Finch.Error{reason: reason} ->
+      %{reason: reason} ->
         Logger.error("Authentication error: #{inspect(reason)}")
         {:error, reason}
     end

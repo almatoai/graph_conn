@@ -1,4 +1,10 @@
-# Unreleased
+# 1.9.10
+
+## Enhancement
+
+- Catch all `%{reason: reason}` error responses during authentication, not only from `Finch`
+
+# 1.9.9
 
 ## Change
 
