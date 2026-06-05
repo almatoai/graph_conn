@@ -3,7 +3,6 @@ defmodule GraphConn.MockGraphApplication do
 
   use Application
   alias GraphConn.Test.MockServer
-  require Logger
 
   @impl Application
   def start(_type, _args) do

@@ -100,9 +100,9 @@ defmodule GraphConn.MixProject do
         "credo --strict",
         "sobelow --exit low",
         "deps.audit --ignore-advisory-ids #{@ignored_advisories}",
-        "coveralls.html",
-        "dialyzer",
-        "docs"
+        "docs",
+        "cmd mix coveralls.html",
+        "dialyzer"
       ]
     ]
   end

@@ -228,12 +228,10 @@ defmodule GraphConn.ActionApi.InvokerTest do
     end
 
     test "returns timeout if execution took too long" do
-      params = %{other_handler: "Echo", command: "ls", sleep: 10_000}
+      params = %{other_handler: "Echo", command: "ls", sleep: 10_000, timeout: 1}
 
-      assert {:error, _req_id, {:exec_timeout, 3_000}} =
-               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params,
-                 timeout: 3_000
-               )
+      assert {:error, _req_id, {:exec_timeout, 1_000}} =
+               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)
     end
   end
 
