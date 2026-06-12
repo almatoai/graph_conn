@@ -1,3 +1,13 @@
+# 1.9.11
+
+## Update
+
+- Use elixir 1.20.0 and otp 29.0.1 and fix new warnings
+
+## Enhancement
+
+- Make sure bless fails if coveralls fails.
+
 # 1.9.10
 
 ## Enhancement

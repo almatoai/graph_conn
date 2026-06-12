@@ -365,7 +365,7 @@ defmodule GraphConn.ActionApi.Invoker do
             handler: action_handler_id,
             capability: capability_name,
             params: params,
-            timeout: Keyword.get(opts, :timeout, timeout)
+            timeout: timeout || Keyword.get(opts, :timeout)
           })
 
         Logger.metadata(req_id: request_id)
