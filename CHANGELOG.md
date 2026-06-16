@@ -1,3 +1,12 @@
+# 1.9.12
+
+## Enhancement
+
+- Add configurable `conn_max_idle_time` Finch pool option. Set
+  `config :graph_conn, conn_max_idle_time: ms` to proactively drop idle
+  HTTP connections before the upstream gateway closes them. Defaults to
+  `nil` (Finch default: `:infinity`, preserving existing behaviour).
+
 # 1.9.11
 
 ## Update
