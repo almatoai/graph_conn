@@ -35,7 +35,7 @@ defmodule GraphConn.Supervisor do
       {Finch,
        name: Module.concat(base_name, Finch),
        pools: %{
-         default: [{:size, 50}, {:count, 1} | _conn_opts()]
+         default: _pool_opts()
        }},
       {GraphConn.ConnectionManager, [base_name, config]}
     ]
@@ -44,6 +44,17 @@ defmodule GraphConn.Supervisor do
 
   defp _name(base_name), do: Module.concat(base_name, Supervisor)
 
+  defp _pool_opts do
+    base = [{:size, 50}, {:count, 1} | _conn_opts()]
+
+    :graph_conn
+    |> Application.get_env(:conn_max_idle_time)
+    |> case do
+      nil -> base
+      timeout -> [{:conn_max_idle_time, timeout} | base]
+    end
+  end
+
   defp _conn_opts do
     insecure? = Application.get_env(:graph_conn, :insecure) == true
     proxy = Application.get_env(:graph_conn, :proxy, false)
@@ -51,7 +62,8 @@ defmodule GraphConn.Supervisor do
     if ca_cert_file = Application.get_env(:graph_conn, :ca_cert),
       do: :public_key.cacerts_load(ca_cert_file)
 
-    case {insecure?, proxy} do
+    {insecure?, proxy}
+    |> case do
       {true, false} ->
         transport_opts = [verify: :verify_none]
         [conn_opts: [transport_opts: transport_opts]]
