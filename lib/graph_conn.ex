@@ -65,6 +65,18 @@ defmodule GraphConn do
 
   For communication with Graph server with REST calls we use pool of connections.
 
+  A call that arrives before the connection has finished starting -- before its process is up, or
+  before it has picked up the API versions from the Graph server -- waits for it, for up to
+  `:startup_wait_ms` (500 by default):
+
+  ```
+  config :graph_conn, startup_wait_ms: 500
+  ```
+
+  Past that the call returns `{:error, :not_started}` rather than waiting on a connection that
+  may not be coming at all -- a client left out of the supervision tree, say, or disabled by
+  configuration. Set it to `0` to skip the grace period entirely and fail such calls immediately.
+
   ### Invoke call
 
   Once connection is started, it will pick api versions from Graph server and authenticate

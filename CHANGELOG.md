@@ -1,3 +1,12 @@
+# 1.9.13
+
+## Fix
+
+- `execute/3` no longer blocks forever when no connection is running for the client. The wait for
+  the table and the API versions themselves is now capped at `:startup_wait_ms` (`config
+  :graph_conn, startup_wait_ms: ms`, 500 by default, `0` to fail immediately) after which the call
+  returns `{:error, :not_started}`.
+
 # 1.9.12
 
 ## Enhancement
