@@ -39,6 +39,11 @@ defmodule GraphConn.ConnectionManager do
 
   @typep version() :: %{path: String.t(), protocol: String.t(), subprotocol: String.t()}
 
+  # How long a caller waits for a client to become usable before giving up, and how often it
+  # looks while waiting. See `_await_versions/1`.
+  @default_startup_wait 500
+  @startup_poll_interval 10
+
   # we need public access to the table so we can change token from test process.
   @doc false
   @spec _ets_opts(opts :: list()) :: list()
@@ -78,6 +83,9 @@ defmodule GraphConn.ConnectionManager do
   @doc """
   Executes `request` against `target_api`. REST APIs go via HTTP; WS APIs are
   dispatched through the associated WebSocket connection.
+
+  Returns `{:error, :not_started}` if no connection is ready for `base_name` (see
+  `_await_versions/1`).
   """
   @spec execute(
           base_name :: atom(),
@@ -89,6 +97,7 @@ defmodule GraphConn.ConnectionManager do
           | {:ok, Response.t()}
           | {:error, ResponseError.t()}
           | {:error, {:unknown_api, [any()]}}
+          | {:error, :not_started}
   def execute(base_name, target_api, %Request{} = request, opts \\ []) do
     case _get_version(base_name, target_api) do
       {:ok, %{protocol: ""}} -> _execute_rest(base_name, target_api, request, opts)
@@ -330,27 +339,23 @@ defmodule GraphConn.ConnectionManager do
     end
   end
 
-  @spec _get_version(base_name :: atom(), target_api :: atom(), attempt :: pos_integer()) ::
-          {:ok, version()} | {:error, {:unknown_api, [atom()]}}
-  defp _get_version(base_name, target_api, attempt \\ 1)
+  @spec _get_version(base_name :: atom(), target_api :: atom()) ::
+          {:ok, version()} | {:error, {:unknown_api, [atom()]}} | {:error, :not_started}
+  defp _get_version(base_name, target_api) do
+    case _await_versions(base_name) do
+      :not_started ->
+        Logger.warning(
+          "No connection is ready for #{inspect(base_name)}, refusing #{target_api} request. " <>
+            "Is it started in a supervision tree, and can it reach the graph?"
+        )
 
-  defp _get_version(_, _, 6),
-    do: {:error, {:unknown_api, []}}
+        {:error, :not_started}
 
-  defp _get_version(base_name, target_api, attempt) do
-    versions = _ets_versions(base_name)
-
-    case Map.get(versions, target_api) do
-      nil ->
-        if versions == %{} do
-          Process.sleep(20)
-          _get_version(base_name, target_api, attempt + 1)
-        else
-          {:error, {:unknown_api, Map.keys(versions)}}
+      versions ->
+        case Map.get(versions, target_api) do
+          nil -> {:error, {:unknown_api, Map.keys(versions)}}
+          version -> {:ok, version}
         end
-
-      version ->
-        {:ok, version}
     end
   end
 
@@ -376,15 +381,56 @@ defmodule GraphConn.ConnectionManager do
     true = :ets.insert(base_name, {key, value})
   end
 
-  defp _ets_versions(base_name) do
-    if :ets.whereis(base_name) == :undefined do
-      Process.sleep(10)
-      _ets_versions(base_name)
-    else
-      [{:versions, versions}] = :ets.lookup(base_name, :versions)
-      versions
+  # Waits, bounded, for `base_name` to become usable and returns the API versions it picked up
+  # from the graph, or `:not_started` if it doesn't get there in time.
+  #
+  # A caller can arrive too early twice over: the table is created in `init/1` and
+  # `GraphConn.Supervisor` starts that child last, and the versions land only once the graph has
+  # answered `_get_versions/1` -- until then the table holds an empty map. Two stages of one
+  # start-up, so they share one deadline: `:startup_wait_ms` (`:graph_conn` app env, 500ms by
+  # default; 0 to fail immediately). The cap matters because the client may not be coming at all
+  # -- disabled by configuration, or never added to a supervision tree -- and an uncapped wait
+  # leaves the caller blocked.
+  @spec _await_versions(base_name :: atom()) :: %{atom() => version()} | :not_started
+  defp _await_versions(base_name),
+    do: _await_versions(base_name, System.monotonic_time(:millisecond) + _startup_wait())
+
+  @spec _await_versions(base_name :: atom(), deadline :: integer()) ::
+          %{atom() => version()} | :not_started
+  defp _await_versions(base_name, deadline) do
+    case _read_versions(base_name) do
+      {:ok, versions} when map_size(versions) > 0 ->
+        versions
+
+      _no_table_or_no_versions_yet ->
+        if System.monotonic_time(:millisecond) < deadline do
+          Process.sleep(@startup_poll_interval)
+          _await_versions(base_name, deadline)
+        else
+          :not_started
+        end
     end
   end
+
+  # Resolves the name once and reads through the tid, so the read can't hit a *different* table
+  # than the one just found. A table that isn't readable is reported as simply not being there
+  # yet, which is what both races here amount to: this process owns the table, so it takes it down
+  # with it whenever it is restarted and a caller landing in that gap should wait for the
+  # replacement, and `_init_ets/2` creates the table a moment before it inserts `:versions` into
+  # it. Neither is worth an `ArgumentError` in the caller.
+  @spec _read_versions(base_name :: atom()) :: {:ok, %{atom() => version()}} | :error
+  defp _read_versions(base_name) do
+    case :ets.whereis(base_name) do
+      :undefined -> :error
+      tid -> {:ok, :ets.lookup_element(tid, :versions, 2)}
+    end
+  rescue
+    ArgumentError -> :error
+  end
+
+  @spec _startup_wait() :: non_neg_integer()
+  defp _startup_wait,
+    do: Application.get_env(:graph_conn, :startup_wait_ms, @default_startup_wait)
 
   @spec parse_urls(config :: Keyword.t()) :: Keyword.t()
   def parse_urls(config) do
