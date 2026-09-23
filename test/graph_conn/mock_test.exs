@@ -19,6 +19,31 @@ defmodule GraphConn.MockTest do
     end
   end
 
+  describe "rate limit arms" do
+    test "serves a 429 exactly as many times as it was armed for" do
+      on_exit(fn -> Mock.clear_rate_limit("concurrent_take_probe") end)
+
+      # A take that loses a decrement leaves an arm behind and denies a request nothing armed
+      # for. One round is enough to catch a slow read-modify-write; the repetition is what
+      # catches a narrow one.
+      for _round <- 1..100 do
+        Mock.rate_limit_auth("concurrent_take_probe", 64, 1)
+
+        taken =
+          1..64
+          |> Task.async_stream(
+            fn _attempt -> Mock.take_auth_rate_limit("concurrent_take_probe") end,
+            max_concurrency: 64,
+            ordered: false
+          )
+          |> Enum.count(fn {:ok, result} -> match?({:ok, _retry_after}, result) end)
+
+        assert 64 == taken
+        assert :error == Mock.take_auth_rate_limit("concurrent_take_probe")
+      end
+    end
+  end
+
   describe "applicabilities" do
     test "returns default applicabilities from config" do
       assert %{"action_handler" => %{}} = Mock.get_applicabilities()

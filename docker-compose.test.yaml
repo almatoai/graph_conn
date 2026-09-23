@@ -1,0 +1,34 @@
+# Supporting services for the test suite. Kept apart from docker-compose.yaml,
+# which is the :dev mock-graph fixture and unrelated to the tests.
+#
+#     docker compose -f docker-compose.test.yaml up -d
+#
+# CI starts the same service; see .github/workflows/test.yml.
+services:
+  squid:
+    image: ubuntu/squid
+    container_name: graph-conn-squid
+    # Strip the IPv6 lines before squid reads them; see hosts_file in squid.conf.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - awk '$$1 !~ /:/' /etc/hosts > /tmp/hosts && exec squid -f /etc/squid/squid.conf -NYC
+    ports:
+      # 3128 on the host is taken by the actionhandler test fixture.
+      - "127.0.0.1:3129:3128"
+    environment:
+      TZ: UTC
+    healthcheck:
+      # The image has no netcat; bash's /dev/tcp is the only probe available.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3128"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 2s
+    volumes:
+      - ./test/support/squid.conf:/etc/squid/squid.conf:ro
+    # The mock graph server runs on the host, not in a container, so squid has to
+    # be able to resolve the host it CONNECTs to. Docker Desktop provides this
+    # name already; on Linux this line is what creates it.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

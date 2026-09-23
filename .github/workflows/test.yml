@@ -55,6 +55,13 @@ jobs:
           mix local.hex --force
           mix deps.get
 
+      - name: Start the test proxy
+        run: |
+          docker compose -f docker-compose.test.yaml up -d --wait --wait-timeout=30 ||
+            { docker compose -f docker-compose.test.yaml logs; exit 1; }
+
       - name: Full bless
+        env:
+          REQUIRE_PROXY_TESTS: "true"
         run: mix bless
 

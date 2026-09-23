@@ -8,7 +8,7 @@ defmodule GraphConn.GraphRestCalls do
   API.
   """
 
-  alias GraphConn.{Instrumenter, Request, Response, ResponseError}
+  alias GraphConn.{Instrumenter, Request, Response, ResponseError, RetryAfter}
   require Logger
 
   @type versions() :: %{atom() => %{path: String.t(), subprotocol: String.t()}}
@@ -87,6 +87,9 @@ defmodule GraphConn.GraphRestCalls do
 
         {:ok, versions}
 
+      %Finch.Response{status: 429, headers: headers} ->
+        RetryAfter.rate_limited(headers)
+
       other ->
         Logger.error("#{inspect(other)}")
         {:error, other}
@@ -129,6 +132,9 @@ defmodule GraphConn.GraphRestCalls do
       %Finch.Response{status: 401} ->
         Logger.error("401 received")
         {:error, :wrong_credentials}
+
+      %Finch.Response{status: 429, headers: headers} ->
+        RetryAfter.rate_limited(headers)
 
       %Finch.Response{body: body} = response ->
         error =

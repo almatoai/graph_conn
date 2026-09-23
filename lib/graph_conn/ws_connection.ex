@@ -19,11 +19,12 @@ defmodule GraphConn.WsConnection do
               reconnect_after_missing_pings: pos_integer()
             ],
             conn_pid: nil | pid(),
+            tunnel_ref: nil | reference(),
             stream_ref: nil | reference()
           }
 
     @enforce_keys ~w(base_name api internal_state status last_pong ws_ping)a
-    defstruct @enforce_keys ++ ~w(conn_pid stream_ref)a
+    defstruct @enforce_keys ++ ~w(conn_pid tunnel_ref stream_ref)a
   end
 
   defp _name(base_name, api) do
@@ -78,9 +79,13 @@ defmodule GraphConn.WsConnection do
         last_pong: DateTime.utc_now()
       }
       |> _connect(config)
-      |> _ws_upgrade(path, version.subprotocol, token)
 
-    {:ok, state}
+    state
+    |> _ws_upgrade(path, version.subprotocol, token)
+    |> case do
+      {:ok, %State{} = upgraded} -> {:ok, upgraded}
+      {:stop, reason} -> {:stop, reason}
+    end
   end
 
   defp _url_params(config) do
@@ -210,6 +215,13 @@ defmodule GraphConn.WsConnection do
     {:stop, "server sent close request", state}
   end
 
+  # A policy close refuses the token itself, so the reason has to survive as something
+  # `ConnectionManager` can tell apart from an ordinary drop. Wrapped in `{:disconnected, _}`
+  # because consumers match on that shape; a bare tuple reaches their catch-all instead.
+  def handle_info({:gun_ws, _, _, {:close, 1008, msg}}, %State{} = state) do
+    {:stop, {:disconnected, {:rejected_by_server, msg}}, state}
+  end
+
   def handle_info({:gun_ws, _, _, {:close, _code, msg}}, %State{} = state) do
     {:stop, "server sent close request: #{msg}", state}
   end
@@ -240,9 +252,9 @@ defmodule GraphConn.WsConnection do
     host
     |> WS.connect(port, config)
     |> case do
-      {:ok, conn_pid} ->
+      {:ok, conn_pid, tunnel_ref} ->
         Process.monitor(conn_pid)
-        %State{state | status: :connected, conn_pid: conn_pid}
+        %State{state | status: :connected, conn_pid: conn_pid, tunnel_ref: tunnel_ref}
 
       {:error, error} ->
         Logger.error("Can't connect to graph: #{inspect(error)}")
@@ -250,9 +262,27 @@ defmodule GraphConn.WsConnection do
     end
   end
 
+  # `_connect/2` leaves `conn_pid` nil when it could not reach the graph at all.
+  defp _ws_upgrade(%State{conn_pid: nil}, _path, _subprotocol, _token),
+    do: {:stop, :not_connected}
+
   defp _ws_upgrade(%State{conn_pid: conn_pid} = state, path, subprotocol, token) do
     Logger.info("Upgrading connection...")
-    {:ok, stream_ref} = WS.ws_upgrade(conn_pid, path, subprotocol, token)
+
+    conn_pid
+    |> WS.ws_upgrade(path, subprotocol, token, state.tunnel_ref)
+    |> case do
+      {:ok, stream_ref} ->
+        {:ok, _upgraded(state, stream_ref)}
+
+      # Refusing to start is what lets `ConnectionManager` back off.
+      {:error, reason} ->
+        Logger.error("WebSocket upgrade failed: #{inspect(reason)}")
+        {:stop, reason}
+    end
+  end
+
+  defp _upgraded(%State{} = state, stream_ref) do
     Logger.info("WebSocket upgrade succeeded.")
 
     if Application.get_env(:graph_conn, :proxy) do

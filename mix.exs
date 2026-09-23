@@ -7,13 +7,24 @@ defmodule GraphConn.MixProject do
   def project do
     [
       app: :graph_conn,
-      version: "1.9.13",
+      version: "1.10.0",
       elixir: "~> 1.17",
       start_permanent: true,
       test_coverage: [tool: ExCoveralls],
       dialyzer: [
         plt_add_deps: :apps_direct,
-        plt_add_apps: [:mix, :plug, :cowboy, :jason, :mint, :public_key, :credo, :ranch]
+        # :ex_unit because dialyzer analyses test/support, which is compiled in :dev and :test.
+        plt_add_apps: [
+          :mix,
+          :plug,
+          :cowboy,
+          :jason,
+          :mint,
+          :public_key,
+          :credo,
+          :ranch,
+          :ex_unit
+        ]
       ],
       name: "GraphConn",
       docs: _docs(),
@@ -55,15 +66,13 @@ defmodule GraphConn.MixProject do
   defp _deps do
     [
       {:elixir_uuid, "~> 1.2"},
-      # {:gun, "~> 2.1.0"},
-      {:gun, github: "burmajam/gun", branch: "fix-proxy-problem"},
+      {:gun, "~> 2.1"},
       {:finch, "~> 0.10"},
       {:ssl_verify_fun, "~> 1.1"},
       {:certifi, "~> 2.12"},
       {:jason, "~> 1.1"},
       ## needed for action handlers only
       {:cachex, "~> 4.0", optional: true},
-      {:cowlib, "~> 2.9", override: true},
       {:telemetry, "~> 0.4 or ~> 1.0"},
 
       # test dependencies
@@ -84,10 +93,11 @@ defmodule GraphConn.MixProject do
     ]
   end
 
-  # Ignored advisories — upstream has no patched version yet. Re-evaluate when
-  # cowlib publishes a fix.
-  #   GHSA-g2wm-735q-3f56 — cowlib: cookie request header injection (no patch yet)
-  @ignored_advisories "GHSA-g2wm-735q-3f56"
+  # Ignored advisories.
+  #   GHSA-w4f7-4cxr-rv3c — the flaw is in cowlib, patched in 2.16.0, and we resolve 2.20.0. The
+  #   advisory carries one version range per affected package and mix_audit matches cowboy's
+  #   against gun, so gun 2.6.0 trips a range it is not in (gun's own is `< 2.4.0`).
+  @ignored_advisories "GHSA-w4f7-4cxr-rv3c"
 
   # `bless` is an alias (not a Mix.Task module) so the opinionated checks below
   # don't leak to apps that depend on this library. `Mix.Tasks.Bless` keeps a
@@ -101,7 +111,8 @@ defmodule GraphConn.MixProject do
         "sobelow --exit low",
         "deps.audit --ignore-advisory-ids #{@ignored_advisories}",
         "docs",
-        "cmd mix coveralls.html",
+        "cmd mix coveralls.html --exclude feature",
+        "cmd mix test --only feature",
         "dialyzer"
       ]
     ]

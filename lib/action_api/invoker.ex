@@ -80,11 +80,10 @@ defmodule GraphConn.ActionApi.Invoker do
 
     @type t() :: %__MODULE__{
             capabilities: [any()],
-            status: GraphConn.ActionApi.Invoker.status(),
-            ws_status: GraphConn.ActionApi.Invoker.status()
+            status: GraphConn.ActionApi.Invoker.status()
           }
 
-    defstruct capabilities: [], status: :initialized, ws_status: :initialized
+    defstruct capabilities: [], status: :initialized
   end
 
   @doc false
@@ -188,21 +187,8 @@ defmodule GraphConn.ActionApi.Invoker do
 
       @impl GraphConn
       @doc false
-      def on_status_change(:"action-ws", status, %InvokerState{ws_status: :initialized} = state) do
-        _with_state(fn
-          %InvokerState{} -> {:ok, %{state | ws_status: status}}
-        end)
-      end
-
-      def on_status_change(
-            :"action-ws",
-            new_status,
-            %InvokerState{status: current_status} = state
-          ) do
-        Logger.debug(
-          "[ActionInvoker] Unhandled Action WS connection status change from #{current_status} to #{inspect(new_status)}"
-        )
-      end
+      def on_status_change(:"action-ws", new_status, %InvokerState{}),
+        do: Logger.debug("[ActionInvoker] Action WS connection is #{inspect(new_status)}")
 
       @impl GraphConn
       @doc false
@@ -233,10 +219,21 @@ defmodule GraphConn.ActionApi.Invoker do
 
         ack = %{type: "acknowledged", id: msg["id"], code: 200}
 
-        :ok =
-          GraphConn.execute(__MODULE__, :"action-ws", %GraphConn.Request{
-            body: ack
-          })
+        __MODULE__
+        |> GraphConn.execute(:"action-ws", %GraphConn.Request{body: ack})
+        |> case do
+          :ok ->
+            :ok
+
+          # Deliberately not the 3-tuple used for a request send: this runs inside
+          # `handle_message/3` with no caller to return to, and the server re-sends a result it
+          # was never acked for.
+          {:error, reason} ->
+            Logger.warning(
+              "[ActionInvoker] Could not ack #{msg["id"]}: #{inspect(reason)}. " <>
+                "Leaving it for the server to re-send."
+            )
+        end
       end
 
       def handle_message(:"action-ws", %{"type" => "configChanged"} = msg, %InvokerState{}),
@@ -412,37 +409,48 @@ defmodule GraphConn.ActionApi.Invoker do
            ) do
         Logger.info("[ActionInvoker] Sending request to server")
 
-        :ok =
-          GraphConn.execute(__MODULE__, :"action-ws", %GraphConn.Request{
-            body: request
-          })
+        __MODULE__
+        |> GraphConn.execute(:"action-ws", %GraphConn.Request{body: request})
+        |> case do
+          :ok ->
+            _await_ack(request, ack_timeout, attempt, last_call?)
 
+          # Never sent, so there is no ack to wait for. The caller gets its own request id back,
+          # which is what lets it tell this apart from its other in-flight calls -- and it is the
+          # shape `_execute/4` already promises. No retry here: `ConnectionManager` owns the timer,
+          # and a second loop underneath it would just re-hit the limiter.
+          {:error, {:rate_limited, retry_after_ms}} ->
+            Logger.warning(
+              "[ActionInvoker] Rate limited, request not sent; retry in #{retry_after_ms}ms"
+            )
+
+            {:error, request_id, {:rate_limited, retry_after_ms}}
+
+          # Any other send failure -- `:not_started` at boot, `:unknown_api`, a refused upgrade.
+          # Without this clause each of those is a CaseClauseError in the calling process. NOT a
+          # nack: the Graph never received this, so calling it a rejection would be the same lie
+          # one layer up as reporting a 503 as a rate limit.
+          {:error, reason} ->
+            # `reason` is a small tagged term from `ConnectionManager`, not a whole response.
+            Logger.error("[ActionInvoker] Request not sent: #{inspect(reason)}")
+            {:error, request_id, {:not_sent, reason}}
+        end
+      end
+
+      # The ack only says the Graph took the request; the response arrives as its own message, so
+      # the two waits are separate.
+      defp _await_ack(
+             %ActionApi.Request{id: request_id} = request,
+             ack_timeout,
+             attempt,
+             last_call?
+           ) do
         Logger.debug("[ActionInvoker] Waiting ack")
 
         receive do
           {:ack, ^request_id} ->
             Logger.info("[ActionInvoker] Ack received")
-
-            timeout =
-              if last_call?,
-                do: 0,
-                else: request.timeout
-
-            request_id
-            |> _wait_for_response(request.timeout)
-            |> case do
-              {:error, ^request_id, {:exec_timeout, _}} ->
-                if last_call? do
-                  Logger.error("[ActionInvoker] Response timeout.")
-                  {:error, request_id, {:exec_timeout, request.timeout}}
-                else
-                  Logger.warning("[Invoker] Sending last call")
-                  _execute(request, ack_timeout, 1, true)
-                end
-
-              response ->
-                response
-            end
+            _await_response(request, ack_timeout, last_call?)
 
           {:nack, ^request_id, %{code: 404} = error} ->
             {:error, request_id, {:nack, error}}
@@ -455,6 +463,36 @@ defmodule GraphConn.ActionApi.Invoker do
             Logger.warning("[ActionInvoker] Message ack timeout after: #{ack_timeout}ms")
             _execute(request, ack_timeout, attempt + 1, last_call?)
         end
+      end
+
+      defp _await_response(
+             %ActionApi.Request{id: request_id} = request,
+             ack_timeout,
+             last_call?
+           ) do
+        request_id
+        |> _wait_for_response(request.timeout)
+        |> case do
+          {:error, ^request_id, {:exec_timeout, _elapsed}} ->
+            _last_call(request, ack_timeout, last_call?)
+
+          response ->
+            response
+        end
+      end
+
+      # A response that misses its deadline is re-asked for once: the Graph may have it ready and
+      # only the delivery lost, and it answers a repeat from cache rather than dispatching again.
+      defp _last_call(%ActionApi.Request{id: request_id} = request, _ack_timeout, true) do
+        Logger.error("[ActionInvoker] Response timeout.")
+
+        {:error, request_id, {:exec_timeout, request.timeout}}
+      end
+
+      defp _last_call(%ActionApi.Request{} = request, ack_timeout, false) do
+        Logger.warning("[ActionInvoker] Sending last call")
+
+        _execute(request, ack_timeout, 1, true)
       end
 
       defp _wait_for_response(request_id, timeout) do

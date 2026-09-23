@@ -77,6 +77,12 @@ defmodule GraphConn do
   may not be coming at all -- a client left out of the supervision tree, say, or disabled by
   configuration. Set it to `0` to skip the grace period entirely and fail such calls immediately.
 
+  The same budget covers a WebSocket connection that has dropped and is waiting on its paced
+  reopen. That reopen lands between one and two times `:retry_initial_ms` (capped at
+  `:retry_max_ms`), so set this above twice `:retry_initial_ms` if a request made during a
+  reconnect should be resent rather than return `{:error, :ws_connection_down}`. The defaults do
+  not overlap: 500 against a 1_000-2_000ms reopen.
+
   ### Invoke call
 
   Once connection is started, it will pick api versions from Graph server and authenticate
@@ -164,10 +170,37 @@ defmodule GraphConn do
         do: GraphConn.ConnectionManager.status(__MODULE__)
 
       @doc """
-      Sends `message` to `target_api` of HIRO Graph server and returning response back
+      Returns current status of main connection, waiting at most `timeout` for it.
+
+      The manager answering this shares a mailbox with token refreshes, so it can be busy for as
+      long as one takes. Without a `timeout` of your own the wait is capped at five seconds and
+      overrunning it exits the calling process.
+      """
+      @spec status(timeout :: timeout()) :: GraphConn.status()
+      def status(timeout),
+        do: GraphConn.ConnectionManager.status(__MODULE__, timeout)
+
+      @doc """
+      Sends `message` to `target_api` of HIRO Graph server and returning response back.
+
+      Returns `{:error, {:rate_limited, retry_after_ms}}` if `target_api` is a WebSocket API whose
+      connection is waiting out a `429` before it reopens. `retry_after_ms` is how long to wait,
+      in milliseconds, and is `0` once the window has passed. Other failures to reach the Graph
+      come back as `{:error, reason}`.
+
+      Two callers arriving together may get different answers, by design. The first to find the
+      connection missing is the one that tries to open it, so it is the one told why that failed;
+      everyone behind it waits for the connection to come back and gives up with
+      `{:error, :ws_connection_down}` after `:startup_wait_ms`. Only a `429` holds the rest back
+      explicitly, with `{:error, {:rate_limited, retry_after_ms}}`. Fail fast for the caller that
+      triggered it, best effort for the others.
       """
       @spec execute(target_api :: atom(), request :: GraphConn.Request.t(), opts :: Keyword.t()) ::
-              term
+              :ok
+              | {:ok, response :: GraphConn.Response.t()}
+              | {:error, {:rate_limited, retry_after_ms :: non_neg_integer()}}
+              | {:error, :ws_connection_down}
+              | {:error, reason :: term()}
       def execute(target_api, %GraphConn.Request{} = request, opts \\ []),
         do: GraphConn.ConnectionManager.execute(__MODULE__, target_api, request, opts)
 
