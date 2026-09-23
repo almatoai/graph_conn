@@ -8,6 +8,31 @@ defmodule GraphConn.Mock do
   `put_applicabilities/2`.
   """
 
+  @default_token_lifetime 10 * 60 * 1_000
+
+  @doc """
+  Sets the lifetime the mock issues for `token`, in milliseconds.
+
+  Scoped to one token on purpose: several clients share this mock, so a blanket override would
+  change the token every one of them receives. A negative `lifetime_ms` issues a token that has
+  already expired.
+  """
+  @spec put_token_lifetime(token :: String.t(), lifetime_ms :: integer()) :: :ok
+  def put_token_lifetime(token, lifetime_ms) when is_binary(token) and is_integer(lifetime_ms) do
+    :graph_conn
+    |> Application.get_env(:mock_token_lifetimes, %{})
+    |> Map.put(token, lifetime_ms)
+    |> then(&Application.put_env(:graph_conn, :mock_token_lifetimes, &1))
+  end
+
+  @doc "Returns the lifetime the mock issues for `token`, in milliseconds. Ten minutes by default."
+  @spec token_lifetime(token :: String.t()) :: integer()
+  def token_lifetime(token) do
+    :graph_conn
+    |> Application.get_env(:mock_token_lifetimes, %{})
+    |> Map.get(token, @default_token_lifetime)
+  end
+
   @doc "Returns the currently configured capabilities map."
   @spec get_capabilities() :: map()
   def get_capabilities do
@@ -51,6 +76,135 @@ defmodule GraphConn.Mock do
       |> Keyword.put(:applicabilities, %{ah_id => applicabilities})
 
     Application.put_env(:graph_conn, :mock, mock)
+  end
+
+  @versions_key :versions
+  @ws_upgrade_key :ws_upgrade
+
+  @doc """
+  Arms the mock to answer the next `times` authentication requests carrying `client_id`
+  with a 429 advertising `retry_after_seconds`, or carrying no `retry-after` header at all
+  when that is `:no_hint`.
+  """
+  @spec rate_limit_auth(
+          client_id :: String.t(),
+          times :: pos_integer(),
+          retry_after_seconds :: pos_integer() | :no_hint
+        ) :: :ok
+  def rate_limit_auth(client_id, times, retry_after_seconds),
+    do: _arm(client_id, times, retry_after_seconds)
+
+  @doc """
+  Arms the mock to answer the next `times` API-version lookups with a 429 advertising
+  `retry_after_seconds`, or no `retry-after` header at all when that is `:no_hint`.
+
+  Unlike `rate_limit_auth/3` this cannot be scoped to one client: `GET /api/version` carries no
+  identity, so an arm here denies whichever suite asks next.
+  """
+  @spec rate_limit_versions(
+          times :: pos_integer(),
+          retry_after_seconds :: pos_integer() | :no_hint
+        ) :: :ok
+  def rate_limit_versions(times, retry_after_seconds),
+    do: _arm(@versions_key, times, retry_after_seconds)
+
+  defp _arm(key, times, payload) do
+    true = :ets.insert(__MODULE__, {key, times, payload})
+    :ok
+  end
+
+  @doc """
+  Disarms any rate limit previously armed for `client_id`.
+
+  Scoped to one client on purpose: a blanket reset would disarm whatever a concurrently
+  running test had armed for a client of its own.
+  """
+  @spec clear_rate_limit(key :: String.t() | :versions | {:ws_upgrade, String.t()}) :: :ok
+  def clear_rate_limit(key) do
+    true = :ets.delete(__MODULE__, key)
+    :ok
+  end
+
+  @doc false
+  @spec take_auth_rate_limit(client_id :: String.t()) ::
+          {:ok, retry_after_seconds :: pos_integer() | :no_hint} | :error
+  def take_auth_rate_limit(client_id),
+    do: _take_rate_limit(client_id)
+
+  @doc false
+  @spec take_versions_rate_limit() ::
+          {:ok, retry_after_seconds :: pos_integer() | :no_hint} | :error
+  def take_versions_rate_limit,
+    do: _take_rate_limit(@versions_key)
+
+  @doc """
+  Arms the mock to answer the next `times` `action-ws` upgrades from `client_type` with `status`
+  instead of a 101, advertising `retry_after_seconds` (or no `retry-after` header when that is
+  `:no_hint`).
+
+  `client_type` is the tail of the connecting client's `token-action_*` subprotocol, so an arm
+  denies one client rather than whoever upgrades next.
+  """
+  @spec reject_ws_upgrade(
+          client_type :: String.t(),
+          times :: pos_integer(),
+          status :: pos_integer(),
+          retry_after_seconds :: pos_integer() | :no_hint
+        ) :: :ok
+  def reject_ws_upgrade(client_type, times, status, retry_after_seconds),
+    do: _arm({@ws_upgrade_key, client_type}, times, {status, retry_after_seconds})
+
+  @doc """
+  Closes the socket held by `client_type` alone with `code` and `msg`.
+
+  `1008` is what a gateway sends when it refuses the connection token itself, which a client must
+  not answer by reconnecting with the same one.
+  """
+  @spec close_ws_connection(client_type :: String.t(), code :: pos_integer(), msg :: String.t()) ::
+          :ok
+  def close_ws_connection(client_type, code, msg) do
+    Registry.TestSockets
+    |> Registry.dispatch({:client, client_type}, fn entries ->
+      for {pid, _registration} <- entries, do: send(pid, {:close, code, msg})
+    end)
+  end
+
+  @doc false
+  @spec take_ws_upgrade_rejection(client_type :: String.t()) ::
+          {:ok, {status :: pos_integer(), retry_after_seconds :: pos_integer() | :no_hint}}
+          | :error
+  def take_ws_upgrade_rejection(client_type),
+    do: _take_rate_limit({@ws_upgrade_key, client_type})
+
+  defp _take_rate_limit(key) do
+    __MODULE__
+    |> :ets.whereis()
+    |> case do
+      :undefined -> :error
+      _table -> _take_armed(key)
+    end
+  end
+
+  # One atomic decrement, because two requests can take the same arm at once: a read-modify-write
+  # over the count loses one of them and serves a 429 more than it was armed for.
+  defp _take_armed(client_id) do
+    absent = {client_id, 0, nil}
+
+    __MODULE__
+    |> :ets.update_counter(client_id, {2, -1, -1, -1}, absent)
+    |> case do
+      -1 -> :error
+      _took_an_arm -> _armed_retry_after(client_id)
+    end
+  end
+
+  defp _armed_retry_after(client_id) do
+    __MODULE__
+    |> :ets.lookup(client_id)
+    |> case do
+      [{^client_id, _remaining, payload}] -> {:ok, payload}
+      [] -> :error
+    end
   end
 
   @doc false

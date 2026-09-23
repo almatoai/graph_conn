@@ -6,7 +6,7 @@ defmodule GraphConn.WSTest do
   describe "connect/3" do
     test "returns connection pid and api versions on success" do
       assert capture_log(fn ->
-               assert {:ok, conn_pid} =
+               assert {:ok, conn_pid, nil} =
                         connect(_host(), _port(), [{:protocols, [:http2]} | _config()])
 
                assert Process.alive?(conn_pid)
@@ -15,7 +15,7 @@ defmodule GraphConn.WSTest do
 
     test "connection can be forced for HTTP1.1" do
       assert capture_log(fn ->
-               assert {:ok, conn_pid} =
+               assert {:ok, conn_pid, nil} =
                         connect(_host(), _port(), [{:protocols, [:http]} | _config()])
 
                assert Process.alive?(conn_pid)

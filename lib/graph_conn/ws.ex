@@ -4,7 +4,7 @@ defmodule GraphConn.WS do
   # :gun wrapper for making connection, ws_upgrade and pushing ws message.
   # Functions from this module are used in WsConnection only.
 
-  alias GraphConn.{Instrumenter, Response, Tools}
+  alias GraphConn.{Instrumenter, Response, RetryAfter, Tools}
   require Logger
 
   @doc """
@@ -23,7 +23,7 @@ defmodule GraphConn.WS do
           host :: String.t() | charlist(),
           port :: String.t() | pos_integer(),
           opts :: Keyword.t()
-        ) :: {:ok, pid()} | {:error, any()}
+        ) :: {:ok, conn_pid :: pid(), tunnel_ref :: nil | reference()} | {:error, any()}
   def connect(host, port, opts \\ []) do
     host = to_charlist(host)
     port = Tools.to_integer(port)
@@ -31,7 +31,12 @@ defmodule GraphConn.WS do
 
     case _proxy_config() do
       nil ->
-        _connect(host, port, connect_opts)
+        host
+        |> _connect(port, connect_opts)
+        |> case do
+          {:ok, conn_pid} -> {:ok, conn_pid, nil}
+          error -> error
+        end
 
       proxy_config ->
         connect_opts =
@@ -97,10 +102,10 @@ defmodule GraphConn.WS do
     with {:ok, conn_pid} <- :gun.open(address, port, proxy_config),
          {:ok, :http} <- :gun.await_up(conn_pid, :timer.minutes(1)),
          conn_ref <- :gun.connect(conn_pid, connect_opts),
-         {:response, :fin, 200, _} <- :gun.await(conn_pid, conn_ref) do
+         {:response, :fin, 200, _headers} <- :gun.await(conn_pid, conn_ref) do
       Logger.info("[GraphConn.WS] Connected to #{connect_opts[:host]} via proxy")
 
-      {:ok, conn_pid}
+      {:ok, conn_pid, conn_ref}
     end
   end
 
@@ -109,28 +114,41 @@ defmodule GraphConn.WS do
           conn_pid :: pid(),
           path :: String.t(),
           subprotocol :: String.t(),
-          token :: String.t()
-        ) :: {:ok, stream_ref :: reference()} | {:error, any()}
-  def ws_upgrade(conn_pid, path, subprotocol, token) do
+          token :: String.t(),
+          tunnel_ref :: nil | reference()
+        ) ::
+          {:ok, stream_ref :: reference() | [reference()]}
+          | {:error, {:rate_limited, wait_in_ms :: non_neg_integer()}}
+          | {:error, any()}
+  def ws_upgrade(conn_pid, path, subprotocol, token, tunnel_ref) do
     mono_start = System.monotonic_time()
 
-    stream_ref =
-      :gun.ws_upgrade(
-        conn_pid,
-        path,
-        [],
-        %{
-          silence_pings: false,
-          protocols: [{subprotocol, :gun_ws_h}, {"token-#{token}", :gun_ws_h}]
-        }
-      )
+    ws_opts =
+      %{
+        silence_pings: false,
+        protocols: [{subprotocol, :gun_ws_h}, {"token-#{token}", :gun_ws_h}]
+      }
+      |> _with_tunnel(tunnel_ref)
+
+    stream_ref = :gun.ws_upgrade(conn_pid, path, [], ws_opts)
 
     {success?, response} =
       conn_pid
       |> _async_response(stream_ref)
       |> case do
-        {:ok, stream_ref} -> {true, {:ok, stream_ref}}
-        error -> {false, error}
+        {:ok, stream_ref} ->
+          {true, {:ok, stream_ref}}
+
+        # A non-101 arrives as a response, not an error tuple; callers must never see it raw.
+        %Response{code: 429, headers: headers} ->
+          {false, RetryAfter.rate_limited(headers)}
+
+        %Response{code: code} = response ->
+          Logger.error("WebSocket upgrade refused with #{code}")
+          {false, {:error, response}}
+
+        error ->
+          {false, error}
       end
 
     Instrumenter.execute(
@@ -165,6 +183,13 @@ defmodule GraphConn.WS do
         %{node: Node.self()}
       )
   end
+
+  # Without it gun opens the stream on the proxy connection instead of inside the tunnel.
+  defp _with_tunnel(ws_opts, nil),
+    do: ws_opts
+
+  defp _with_tunnel(ws_opts, tunnel_ref),
+    do: Map.put(ws_opts, :tunnel, tunnel_ref)
 
   @spec _async_response(conn_pid :: pid(), stream_ref :: reference() | [reference()]) ::
           Response.t()
@@ -201,9 +226,10 @@ defmodule GraphConn.WS do
       {:DOWN, _monitor_ref, :process, ^conn_pid, reason} ->
         {:error, reason}
 
-      {:gun_tunnel_up, ^conn_pid, new_stream_ref, :http} ->
-        refs = List.flatten([new_stream_ref, stream_ref])
-        _async_response(conn_pid, refs)
+      # Already accounted for: the upgrade carried the tunnel, so `stream_ref` names the tunnelled
+      # stream.
+      {:gun_tunnel_up, ^conn_pid, _tunnel_ref, _protocol} ->
+        _async_response(conn_pid, stream_ref)
     after
       5_000 ->
         {:error, :recv_timeout}

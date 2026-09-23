@@ -6,18 +6,68 @@ defmodule GraphConn.Test.MockSocket do
   @behaviour :cowboy_websocket
 
   @doc false
-  @spec init(request :: map(), state :: term()) :: {:cowboy_websocket, map(), map()}
-  def init(
-        %{headers: %{"sec-websocket-protocol" => "0.9, token-action_" <> client_type}} = request,
-        _state
-      ) do
-    state = %{registry_key: "action_" <> client_type}
+  @spec init(request :: map(), state :: term()) ::
+          {:cowboy_websocket, map(), map()} | {:ok, map(), term()}
+  def init(request, state) do
+    request
+    |> _client_type()
+    |> GraphConn.Mock.take_ws_upgrade_rejection()
+    |> case do
+      {:ok, {status, retry_after_seconds}} -> _reject(request, state, status, retry_after_seconds)
+      :error -> _upgrade(request, state)
+    end
+  end
+
+  # The standalone invoker plays the invoker role for message routing -- the dispatch clauses
+  # below key off that -- but keeps its own identity for arming, so the two can be denied apart.
+  defp _registry_role("standalone"),
+    do: "invoker"
+
+  defp _registry_role(client_type),
+    do: client_type
+
+  # Scoped like the auth arm is, so one client's armed rejection cannot refuse another's upgrade.
+  defp _client_type(%{
+         headers: %{"sec-websocket-protocol" => "0.9, token-action_" <> client_type}
+       }),
+       do: client_type
+
+  defp _client_type(request),
+    do: request.path
+
+  # Answering the upgrade with a plain HTTP response instead of upgrading: returning `{:ok, ...}`
+  # from a `:cowboy_websocket` handler's `init/2` means the reply has already been sent.
+  defp _reject(request, state, status, retry_after_seconds) do
+    Logger.debug("[MockSocket] Rejecting upgrade with #{status}")
+
+    request =
+      retry_after_seconds
+      |> _reject_headers()
+      |> then(&:cowboy_req.reply(status, &1, "", request))
+
+    {:ok, request, state}
+  end
+
+  defp _reject_headers(:no_hint),
+    do: %{"content-type" => "application/json"}
+
+  defp _reject_headers(retry_after_seconds),
+    do: %{"content-type" => "application/json", "retry-after" => to_string(retry_after_seconds)}
+
+  defp _upgrade(
+         %{headers: %{"sec-websocket-protocol" => "0.9, token-action_" <> client_type}} = request,
+         _state
+       ) do
+    state = %{
+      registry_key: "action_" <> _registry_role(client_type),
+      client_type: client_type
+    }
 
     {:cowboy_websocket, request, state}
   end
 
-  def init(request, _state) do
-    state = %{registry_key: request.path}
+  defp _upgrade(request, _state) do
+    state = %{registry_key: request.path, client_type: request.path}
 
     {:cowboy_websocket, request, state}
   end
@@ -27,6 +77,11 @@ defmodule GraphConn.Test.MockSocket do
   def websocket_init(state) do
     Registry.TestSockets
     |> Registry.register(state.registry_key, {})
+
+    # Routing shares one key between clients playing the same role; this one names a single
+    # client, so a test can close its socket without touching anyone else's.
+    Registry.TestSockets
+    |> Registry.register({:client, state.client_type}, {})
 
     {:ok, state}
   end
@@ -147,7 +202,11 @@ defmodule GraphConn.Test.MockSocket do
   end
 
   @doc false
-  @spec websocket_info(info :: term(), state :: map()) :: {:reply, {:text, term()}, map()}
+  @spec websocket_info(info :: term(), state :: map()) ::
+          {:reply, {:text, term()} | {:close, pos_integer(), String.t()}, map()}
+  def websocket_info({:close, code, msg}, state),
+    do: {:reply, {:close, code, msg}, state}
+
   def websocket_info(info, state) do
     {:reply, {:text, info}, state}
   end

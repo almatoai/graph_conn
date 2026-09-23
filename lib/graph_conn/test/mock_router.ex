@@ -2,6 +2,7 @@ defmodule GraphConn.Test.MockRouter do
   @moduledoc false
 
   use Plug.Router
+  alias GraphConn.Mock
   alias GraphConn.Test.MockServer
 
   plug Plug.Logger
@@ -16,9 +17,14 @@ defmodule GraphConn.Test.MockRouter do
 
   @valid_token "action_invoker"
   @valid_handler_token "action_handler"
+  @valid_standalone_token "action_standalone"
 
   get "/api/version" do
-    _success(conn, _apis())
+    GraphConn.Mock.take_versions_rate_limit()
+    |> case do
+      {:ok, retry_after_seconds} -> _rate_limited(conn, retry_after_seconds)
+      :error -> _success(conn, _apis())
+    end
   end
 
   get "/api/:_/action/app/:config_id/handlers" do
@@ -50,26 +56,12 @@ defmodule GraphConn.Test.MockRouter do
   end
 
   post "/api/:_/auth/app" do
-    config_credentials =
-      MockServer.valid_invoker_credentials()
-      |> Enum.map(fn {key, val} -> {to_string(key), val} end)
-      |> Enum.into(%{})
-
-    handler_credentials =
-      MockServer.valid_handler_credentials()
-      |> Enum.map(fn {key, val} -> {to_string(key), val} end)
-      |> Enum.into(%{})
-
-    event_handler_credentials =
-      MockServer.valid_event_handler_credentials()
-      |> Enum.map(fn {key, val} -> {to_string(key), val} end)
-      |> Enum.into(%{})
-
-    case conn.params do
-      ^config_credentials -> _success(conn, _credentials())
-      ^handler_credentials -> _success(conn, _credentials(true))
-      ^event_handler_credentials -> _success(conn, _credentials(true))
-      _ -> _unauthorized(conn)
+    conn.params
+    |> Map.get("client_id")
+    |> GraphConn.Mock.take_auth_rate_limit()
+    |> case do
+      {:ok, retry_after_seconds} -> _rate_limited(conn, retry_after_seconds)
+      :error -> _authenticate(conn)
     end
   end
 
@@ -90,6 +82,36 @@ defmodule GraphConn.Test.MockRouter do
       end)
 
     _success(conn, headers)
+  end
+
+  defp _authenticate(conn) do
+    config_credentials =
+      MockServer.valid_invoker_credentials()
+      |> Enum.map(fn {key, val} -> {to_string(key), val} end)
+      |> Enum.into(%{})
+
+    handler_credentials =
+      MockServer.valid_handler_credentials()
+      |> Enum.map(fn {key, val} -> {to_string(key), val} end)
+      |> Enum.into(%{})
+
+    event_handler_credentials =
+      MockServer.valid_event_handler_credentials()
+      |> Enum.map(fn {key, val} -> {to_string(key), val} end)
+      |> Enum.into(%{})
+
+    standalone_credentials =
+      MockServer.valid_standalone_invoker_credentials()
+      |> Enum.map(fn {key, val} -> {to_string(key), val} end)
+      |> Enum.into(%{})
+
+    case conn.params do
+      ^config_credentials -> _success(conn, _credentials(@valid_token))
+      ^handler_credentials -> _success(conn, _credentials(@valid_handler_token))
+      ^event_handler_credentials -> _success(conn, _credentials(@valid_handler_token))
+      ^standalone_credentials -> _success(conn, _credentials(@valid_standalone_token))
+      _unknown_credentials -> _unauthorized(conn)
+    end
   end
 
   defp _apis do
@@ -223,16 +245,16 @@ defmodule GraphConn.Test.MockRouter do
     }
   end
 
-  defp _credentials(action_handler? \\ false) do
-    token = if action_handler?, do: @valid_handler_token, else: @valid_token
-
+  defp _credentials(token) do
     %{
       "_APPLICATION" => "cju16o7cf0000mz77pbwbhl3q_cjix82tev000ou473gko8jgey",
       "_IDENTITY" => "engine1_main@customer1.org",
       "_IDENTITY_ID" => "ck2uexxlp005c5y38z00hbqhv_ck2uexyt9006r5y384wsfw2vp",
       "_TOKEN" => token,
       "expires-at" =>
-        DateTime.utc_now() |> DateTime.to_unix(:millisecond) |> Kernel.+(10 * 60 * 1_000),
+        DateTime.utc_now()
+        |> DateTime.to_unix(:millisecond)
+        |> Kernel.+(Mock.token_lifetime(token)),
       "type" => "Bearer"
     }
   end
@@ -241,6 +263,7 @@ defmodule GraphConn.Test.MockRouter do
     case :proplists.get_value("authorization", conn.req_headers) do
       "Bearer " <> @valid_token -> fun.()
       "Bearer " <> @valid_handler_token -> fun.()
+      "Bearer " <> @valid_standalone_token -> fun.()
       _ -> _unauthorized(conn)
     end
   end
@@ -250,6 +273,28 @@ defmodule GraphConn.Test.MockRouter do
     |> Plug.Conn.put_resp_content_type("application/json")
     |> Plug.Conn.send_resp(200, Jason.encode!(body))
   end
+
+  # Mirrors hiro-rate-limiter's reply: whole-second `retry-after` plus a JSON body.
+  defp _rate_limited(conn, retry_after_seconds) do
+    body = %{
+      "error" => %{
+        "code" => 429,
+        "message" => "Too Many Requests",
+        "from" => "rate-limiter"
+      }
+    }
+
+    conn
+    |> Plug.Conn.put_resp_content_type("application/json")
+    |> _put_retry_after(retry_after_seconds)
+    |> Plug.Conn.send_resp(429, Jason.encode!(body))
+  end
+
+  defp _put_retry_after(conn, :no_hint),
+    do: conn
+
+  defp _put_retry_after(conn, retry_after_seconds),
+    do: Plug.Conn.put_resp_header(conn, "retry-after", to_string(retry_after_seconds))
 
   defp _unauthorized(conn) do
     body = %{

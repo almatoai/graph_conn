@@ -1,7 +1,7 @@
 defmodule GraphConnTest do
   use ExUnit.Case, async: false
   alias GraphConn.{Request, Response}
-  alias GraphConn.TestConn
+  alias GraphConn.{TestClient, TestConn}
   import ExUnit.CaptureLog
 
   describe "connection" do
@@ -157,6 +157,10 @@ defmodule GraphConnTest do
     end
 
     test "restarts ws connection when it goes down" do
+      # A dropped connection is now reopened on the backoff curve, so a caller's budget has to
+      # cover that wait: the default 500ms is below the 1_000-2_000ms reopen.
+      TestClient.put_env(:startup_wait_ms, 5_000)
+
       # open ws connection
       test_api = :"action-ws"
       assert :ok = TestConn.execute(test_api, %Request{})
@@ -200,6 +204,10 @@ defmodule GraphConnTest do
     end
 
     test "ws message is silently resent when connection is dropped" do
+      # A dropped connection is now reopened on the backoff curve, so a caller's budget has to
+      # cover that wait: the default 500ms is below the 1_000-2_000ms reopen.
+      TestClient.put_env(:startup_wait_ms, 5_000)
+
       # open ws connection
       assert :ok = TestConn.execute(:"action-ws", %Request{})
 
@@ -228,7 +236,7 @@ defmodule GraphConnTest do
       # send message while process is down
       assert capture_log(fn ->
                :ok = TestConn.execute(:"action-ws", %Request{})
-             end) =~ ~r/WS connection is down! Retrying message sending.../
+             end) =~ ~r/WS connection is down, waiting for it to come back/
 
       assert_receive {:conn_status_changed, :"action-ws", :ready}
 

@@ -1,3 +1,63 @@
+# 1.10.0
+
+First release that supports running behind a rate-limiting WebSocket gateway.
+
+## Enhancement
+
+- Retries on authentication, API-version discovery and WebSocket upgrade wait for the
+  `retry-after` seconds a 429 advertises, on a capped and jittered curve. Tunable via
+  `:retry_initial_ms` (1_000), `:retry_max_ms` (10_000), `:retry_jitter_ms` (1_000) and
+  `:retry_floor_max_ms` (300_000, the sanity ceiling on an advertised wait).
+- A refused WebSocket upgrade no longer restarts the client's supervision subtree.
+- `GraphConn.Mock.put_token_lifetime/2` sets the lifetime the mock server issues for a given token,
+  so a suite can exercise a short-lived or already-expired one. Scoped to a single token, since
+  several clients share the mock; unset, every token lives ten minutes as before.
+- `GraphConn.ActionApi.Invoker.State` no longer carries `ws_status`. It was written once and never
+  read, and every WebSocket status change after the first was logged as unhandled.
+- `status/1` takes a timeout. The manager answering it shares a mailbox with token refreshes, so
+  it can be busy for as long as one takes; without this the wait was fixed at five seconds and
+  overrunning it exited the calling process.
+- The access token is now refreshed before it expires rather than at the instant it does, so a
+  connection opened near expiry no longer carries a dead token. Tunable via
+  `:token_refresh_ratio` (0.95 of the token's lifetime), with a floor of three times
+  `:retry_max_ms` so a short-lived token keeps a margin wide enough to outlast a run of denials.
+
+## Fix
+
+- A WebSocket connection the Graph closes with `1008` is no longer reopened on the backoff curve.
+  Reconnecting with a token the Graph just refused can only be refused again; the close reaches
+  `on_status_change/3` as `{:disconnected, {:rejected_by_server, message}}`, and the connection is
+  reopened once a new token arrives.
+- A token refresh the Graph rejects now answers the caller with `{:error, :wrong_credentials}`
+  instead of crashing the connection manager and, under `:one_for_all`, the client with it.
+- Retrying a `401` no longer exits the caller when authentication runs longer than five seconds.
+  The wait now follows the configured `:auth` timeout it is waiting on.
+- A token whose `expires-at` has already passed no longer takes the client down. It is kept and the
+  client stays `:ready` — the clock may be ours, not the Graph's — and the refresh is scheduled on
+  the retry curve with a warning naming the likely cause, rather than immediately.
+
+## Change
+
+- A request that cannot go out because the Graph answered a `429` now comes back as an error
+  rather than blocking or raising: `GraphConn.execute/3` against a WebSocket API returns
+  `{:error, {:rate_limited, retry_after_ms}}`, and an action invoker's `execute/5` returns
+  `{:error, request_id, {:rate_limited, retry_after_ms}}`, which is added to
+  `ActionApi.execution_error()`. `retry_after_ms` is how long to wait, `0` once the window has
+  passed. Only a `429` reports as rate limited; an action invoker reports any other unsendable
+  request as `{:error, request_id, {:not_sent, reason}}`, also added to
+  `ActionApi.execution_error()`.
+- BREAKING: a request against a WebSocket API whose connection is down now returns
+  `{:error, :ws_connection_down}` once `:startup_wait_ms` (500 by default) is spent, where it
+  previously blocked until the connection came back and then succeeded.
+- Depends on the published `gun ~> 2.1` instead of a fork of it. Connecting to the Graph through a
+  client's HTTP proxy is unchanged.
+- A WebSocket connection that drops is now reopened on the backoff curve rather than immediately,
+  so the first reconnect after a drop waits between one and two times `:retry_initial_ms` instead
+  of no time at all. A request made during that window is only resent once the connection is back,
+  so `:startup_wait_ms` must exceed twice `:retry_initial_ms` (or `:retry_max_ms`, if that is
+  lower) for it to be resent rather than return `{:error, :ws_connection_down}`. On the defaults
+  (500 against a 1_000-2_000ms reopen) it returns the error.
+
 # 1.9.13
 
 ## Fix

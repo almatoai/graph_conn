@@ -209,6 +209,15 @@ Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_do
 
 ## Tests
 
+The proxy tests need a squid instance, which `docker-compose.test.yaml` provides:
+
+```
+$> docker compose -f docker-compose.test.yaml up -d
+```
+
+Without it they are excluded and the rest of the suite runs as usual. CI starts the same service
+and sets `REQUIRE_PROXY_TESTS=true`, so there they fail rather than skip.
+
 Tests can be run against integrated Mock server or against real Graph server (configured in config/config.exs).
 
 By default tests are run against Mock server, but if system env var `INTEGRATION_TESTS=true` is set,
