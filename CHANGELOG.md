@@ -44,6 +44,13 @@ First release that supports running behind a rate-limiting WebSocket gateway.
   instead of crashing the connection manager and, under `:one_for_all`, the client with it.
 - Retrying a `401` no longer exits the caller when authentication runs longer than five seconds.
   The wait now follows the configured `:auth` timeout it is waiting on.
+- An authentication response the client cannot use -- an `expires-at` that is not a timestamp, or
+  a `200` carrying no token, an error object or a body that is not JSON at all -- is refused at the
+  boundary, named in the log and paced on the retry curve, instead of raising inside the connection
+  manager and taking the client's subtree with it. An `expires-at` written with a decimal point is read as the instant it names, and a
+  refresh is never scheduled more than a day out, so an expiry given in microseconds cannot raise
+  either -- and it is warned about, as an already-expired one already was. A timestamp merely in the wrong unit downward, or genuinely in the past, stays the
+  refresh curve's problem.
 - A token whose `expires-at` has already passed no longer takes the client down. It is kept and the
   client stays `:ready` — the clock may be ours, not the Graph's — and the refresh is scheduled on
   the retry curve with a warning naming the likely cause, rather than immediately.

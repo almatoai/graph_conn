@@ -60,6 +60,12 @@ defmodule GraphConn.ConnectionManager do
   # `_stability_window/0`.
   @stability_ceilings 3
 
+  # The longest a refresh is ever scheduled for. `Process.send_after/3` raises above roughly 2^46,
+  # and an `expires-at` in the wrong unit UPWARD -- microseconds or nanoseconds since the epoch --
+  # is a valid integer that lands there. See the far-future clause of `_schedule_refresh/3`, which
+  # is the only thing that applies it.
+  @max_refresh_in 86_400_000
+
   # Derived from the backoff ceiling, so raising it cannot silently narrow the margin.
   @refresh_margin_denials 3
 
@@ -659,7 +665,8 @@ defmodule GraphConn.ConnectionManager do
         _schedule_retry("authentication", retry_message, retry_in, advertised_ms)
         {:noreply, state}
 
-      {:error, _error} ->
+      {:error, error} ->
+        Logger.error("Authentication failed: #{inspect(error)}")
         _schedule_retry("authentication", retry_message, retry_in, 0)
         {:noreply, state}
     end
@@ -677,6 +684,17 @@ defmodule GraphConn.ConnectionManager do
     )
 
     _schedule_retry("token refresh", :refresh_token, retry_in, 0)
+  end
+
+  # The mirror of the already-expired clause. Clamping alone keeps the client up but says nothing,
+  # so a Graph sending microseconds looks exactly like one that works.
+  defp _schedule_refresh(expires_at, now, _retry_in) when expires_at - now > @max_refresh_in do
+    Logger.warning(
+      "Token `expires-at` #{expires_at} is more than a day out. Check whether it is in " <>
+        "microseconds rather than milliseconds. Refreshing in #{@max_refresh_in}ms regardless."
+    )
+
+    Process.send_after(self(), :refresh_token, @max_refresh_in)
   end
 
   # A live socket is never re-tokened, so the refresh has to beat the expiry.

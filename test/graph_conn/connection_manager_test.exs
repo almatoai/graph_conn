@@ -531,6 +531,142 @@ defmodule GraphConn.ConnectionManagerTest do
     end
   end
 
+  describe "a token whose expires-at is not a timestamp" do
+    setup do
+      TestClient.stop()
+      TestClient.put_env(:mock_expires_at, %{})
+      TestClient.put_env(:mock_auth_bodies, %{})
+      on_exit(&TestClient.stop/0)
+
+      :ok
+    end
+
+    test "keeps the client up and retries, rather than taking its subtree down" do
+      Mock.put_expires_at("action_invoker", "1758723600000")
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+
+      manager = _manager_pid()
+      assert is_pid(manager)
+
+      # `Jason.decode!/1` hands back whatever the Graph sent, and the spec's `pos_integer()` is
+      # documentation rather than a guarantee. Arithmetic on a string raises inside the manager,
+      # which takes the client's subtree with it; a paced retry is the graceful answer.
+      {reply, log} = with_log(fn -> GenServer.call(manager, :refresh_token) end)
+
+      assert :ok == reply
+      assert log =~ "authentication"
+      assert Process.alive?(manager)
+      assert manager == _manager_pid()
+    end
+
+    test "names the expires-at it refused, so the retry loop is not silent" do
+      Mock.put_expires_at("action_invoker", "1758723600000")
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+
+      {_reply, log} = with_log(fn -> GenServer.call(_manager_pid(), :refresh_token) end)
+
+      # The refusal carries the offending value precisely so it can be named. Without it an
+      # operator sees a client retrying authentication forever and nothing saying why.
+      assert log =~ "invalid_expires_at"
+    end
+
+    test "keeps the client up when the Graph names the expiry in microseconds" do
+      # A valid integer, so the type guard passes it, and the unit slip a Graph that changes its
+      # clock precision actually makes. The already-expired clause names the slip in the other
+      # direction; this one reaches `Process.send_after/3` with a delay it refuses, inside the
+      # manager, under `:one_for_all`.
+      Mock.put_expires_at(
+        "action_invoker",
+        DateTime.utc_now() |> DateTime.to_unix(:microsecond)
+      )
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+
+      manager = _manager_pid()
+
+      reply =
+        try do
+          GenServer.call(manager, :refresh_token)
+        catch
+          :exit, reason -> {:exit, reason}
+        end
+
+      assert :ok == reply
+      assert Process.alive?(manager)
+    end
+
+    test "names an expiry so far out it cannot be a millisecond timestamp" do
+      # The slip DOWNWARD has always had a warning naming the likely cause. This one is clamped
+      # rather than raising, so the client stays up either way -- without a warning of its own a
+      # Graph sending microseconds would look exactly like one that works.
+      Mock.put_expires_at(
+        "action_invoker",
+        DateTime.utc_now() |> DateTime.to_unix(:microsecond)
+      )
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+
+      {reply, log} = with_log(fn -> GenServer.call(_manager_pid(), :refresh_token) end)
+
+      assert :ok == reply
+      assert log =~ "expires-at"
+    end
+
+    test "keeps the client up when the Graph answers 200 with no expires-at at all" do
+      Mock.put_expires_at("action_invoker", :absent)
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+
+      manager = _manager_pid()
+      {reply, log} = with_log(fn -> GenServer.call(manager, :refresh_token) end)
+
+      assert :ok == reply
+      assert log =~ "invalid_auth_response"
+      assert Process.alive?(manager)
+    end
+
+    test "keeps the client up when the Graph answers 200 with a body that is not JSON" do
+      Mock.put_auth_body("action_invoker", "<html><body>502 Bad Gateway</body></html>")
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+
+      manager = _manager_pid()
+      {reply, log} = with_log(fn -> GenServer.call(manager, :refresh_token) end)
+
+      assert :ok == reply
+      assert log =~ "invalid_auth_response"
+      assert Process.alive?(manager)
+    end
+
+    test "takes a timestamp the Graph wrote with a decimal point" do
+      # A future expiry, so the already-expired branch cannot absorb it: the refresh maths is what
+      # has to survive the float.
+      future =
+        DateTime.utc_now()
+        |> DateTime.to_unix(:millisecond)
+        |> Kernel.+(600_000)
+        |> Kernel.*(1.0)
+
+      Mock.put_expires_at("action_invoker", future)
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+
+      # Reaching `:ready` is the load-bearing part: a rejected timestamp would schedule a retry
+      # and leave the client without a token, which is also a manager that survives.
+      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert_receive {:conn_status_changed, :ready}, 15_000
+    end
+  end
+
   describe "a token that arrives already expired" do
     setup do
       TestClient.stop()

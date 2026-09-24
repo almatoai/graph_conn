@@ -125,9 +125,7 @@ defmodule GraphConn.GraphRestCalls do
     |> _shoot(base_bame, config, timeout: timeout)
     |> case do
       %Finch.Response{status: 200, body: body} ->
-        Logger.info("Successfully authenticated.")
-        %{"_TOKEN" => token, "expires-at" => expires_at} = Jason.decode!(body)
-        {:ok, %{token: token, expires_at: expires_at}}
+        _auth_response(body)
 
       %Finch.Response{status: 401} ->
         Logger.error("401 received")
@@ -194,6 +192,50 @@ defmodule GraphConn.GraphRestCalls do
       version -> {:ok, version}
     end
   end
+
+  defp _auth_response(body) do
+    body
+    |> Jason.decode()
+    |> case do
+      {:ok, decoded} -> _authenticated(decoded)
+      {:error, _not_json} -> {:error, {:invalid_auth_response, body}}
+    end
+  end
+
+  defp _authenticated(%{"_TOKEN" => token, "expires-at" => expires_at}) do
+    expires_at
+    |> _expires_at()
+    |> case do
+      {:ok, expires_at} ->
+        Logger.info("Successfully authenticated.")
+        {:ok, %{token: token, expires_at: expires_at}}
+
+      :error ->
+        {:error, {:invalid_expires_at, expires_at}}
+    end
+  end
+
+  # A `200` carrying a JSON error object rather than a token. A body that is not JSON at all never
+  # reaches here -- the decode above answers it -- and both used to raise inside `ConnectionManager`.
+  defp _authenticated(body),
+    do: {:error, {:invalid_auth_response, body}}
+
+  # `Jason.decode!/1` hands back whatever the Graph sent, so the `pos_integer()` above is a promise
+  # until it is checked here. Arithmetic on anything else raises inside `ConnectionManager`, which
+  # takes the client's whole subtree with it.
+  #
+  # Only the TYPE is checked. A timestamp in the wrong unit, or one genuinely in the past, is a
+  # valid integer and is paced by the refresh curve instead -- rejecting a past expiry here would
+  # brick a client whose only fault is a skewed clock.
+  defp _expires_at(expires_at) when is_integer(expires_at),
+    do: {:ok, expires_at}
+
+  # The same instant, written with a decimal point.
+  defp _expires_at(expires_at) when is_float(expires_at),
+    do: {:ok, trunc(expires_at)}
+
+  defp _expires_at(_not_a_timestamp),
+    do: :error
 
   defp _shoot(%Request{} = request, base_name, config, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, Keyword.get(config, :timeout, 5_000))
