@@ -27,61 +27,6 @@ Sends telemetry events:
 
 `time` is in UTC, `success` is boolean, `duration` is in ms, `bytes` is number of bytes sent or recieved.
 
-## Mock Graph server
-
-This library behaves as an application in `dev` env, mocking graph server so AH can connect to it and accept requests.
-
-`docker-compose.yaml` describes both AH and mock graph server, so once compose is up, AH will connect to mock graph server.
-You can attach to running mock graph server session in order to invoke actions on AH.
-
-Note: If you plan to use `ExecuteCommand` or any other `ssh` based capability, make sure to add `ssh-keys/id_rsa.pub`
-into servers `~/.ssh/authorized_keys` file. To ssh to host machine:
-
-```
-cat ssh-keys/id_rsa.pub >> ~/.ssh/authorized_keys
-```
-
-### Setup
-
-1. Make sure that capability is configured in `config/dev.exs`
-
-2. Build and Run docker compose:
-
-```
-docker compose build && \
-docker compose up
-```
-
-3. Attach to the running mock graph
-
-```
-$ docker exec -ti hiro-graph-mock bash
-$ iex --remsh mock
-```
-
-4. Invoke command from running iex session
-
-#### Echo action
-
-```
-iex> params = %{"other_handler" => "Echo", "command" => "ls", "sleep" => 40, "timeout" => 2}
-iex> ActionInvoker.execute(params)
-```
-
-#### SSH action
-
-```
-iex> params = %{"command" => "hostname", "host" => "<ssh-server-name>", "user" => "<username>", "timeout" => 5}
-iex> ActionInvoker.execute("ExecuteCommand", params)
-```
-
-#### HTTP action
-
-```
-iex> params = %{"url" => "https://example.com", "timeout" => 5}
-iex> ActionInvoker.execute("HTTPRequest", params)
-```
-
 ## Test
 
 Run `mix test` to run ActionInvoker and ActionHandler tests against local mock server. For tests running through Graph create `config/git_ignored.exs` file and set with correct credentials:

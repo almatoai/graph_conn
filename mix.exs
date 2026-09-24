@@ -1,8 +1,6 @@
 defmodule GraphConn.MixProject do
   use Mix.Project
 
-  @mix_env Mix.env()
-
   @spec project() :: keyword()
   def project do
     [
@@ -39,7 +37,6 @@ defmodule GraphConn.MixProject do
     [
       extra_applications: [:logger, :ssl]
     ]
-    |> _start_server(@mix_env)
   end
 
   @spec cli() :: keyword()
@@ -56,12 +53,6 @@ defmodule GraphConn.MixProject do
       ]
     ]
   end
-
-  # if you want to connect to local aapi comment this function
-  # defp _start_server(list, :dev),
-  #   do: [{:mod, {GraphConn.MockGraphApplication, []}} | list]
-
-  defp _start_server(list, _), do: list
 
   defp _deps do
     [
