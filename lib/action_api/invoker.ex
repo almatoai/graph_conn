@@ -95,6 +95,7 @@ defmodule GraphConn.ActionApi.Invoker do
       alias GraphConn.ActionApi.Invoker.RequestRegistry
       alias GraphConn.ActionApi.Invoker.RequestRegistry.Local, as: LocalRequestRegistry
       alias GraphConn.ActionApi.Invoker.State, as: InvokerState
+      alias GraphConn.RetryAfter
       require Logger
 
       @ack_timeout 3_000
@@ -238,6 +239,37 @@ defmodule GraphConn.ActionApi.Invoker do
 
       def handle_message(:"action-ws", %{"type" => "configChanged"} = msg, %InvokerState{}),
         do: on_config_changed()
+
+      # Only a `429`: it says the request was refused and resending it is what a limiter is asking
+      # us not to do. A `503` on the same socket is transient, so resending it is arguably right
+      # and it keeps the existing path.
+      #
+      # A denial arrives on the open socket in place of the ack, carrying the request's own id.
+      # Answering the caller is what stops `_await_ack/4` timing out and resending into the
+      # limiter; a denial with no id belongs to nobody here and falls through to the clause below.
+      def handle_message(
+            :"action-ws",
+            %{"error" => %{"code" => 429} = error, "id" => request_id},
+            %InvokerState{}
+          )
+          when is_binary(request_id) do
+        retry_after_ms =
+          error
+          |> Map.get("retryAfterMs")
+          |> RetryAfter.from_ms()
+
+        RequestRegistry.rate_limited(
+          __MODULE__,
+          request_id,
+          retry_after_ms,
+          @request_registry
+        )
+      end
+
+      # Expected whenever the denied message carried no id of its own: there is no caller to
+      # answer, and it is not the unexpected-message case the clause below reports.
+      def handle_message(:"action-ws", %{"error" => %{"code" => 429}} = msg, %InvokerState{}),
+        do: Logger.warning("[ActionInvoker] Rate limited with no request id: #{inspect(msg)}")
 
       def handle_message(:"action-ws", msg, %InvokerState{}) do
         Logger.error(
@@ -451,6 +483,10 @@ defmodule GraphConn.ActionApi.Invoker do
           {:ack, ^request_id} ->
             Logger.info("[ActionInvoker] Ack received")
             _await_response(request, ack_timeout, last_call?)
+
+          {:rate_limited, ^request_id, retry_after_ms} ->
+            Logger.warning("[ActionInvoker] Rate limited, retry in #{retry_after_ms}ms")
+            {:error, request_id, {:rate_limited, retry_after_ms}}
 
           {:nack, ^request_id, %{code: 404} = error} ->
             {:error, request_id, {:nack, error}}

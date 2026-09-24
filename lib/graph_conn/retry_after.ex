@@ -2,8 +2,9 @@ defmodule GraphConn.RetryAfter do
   @moduledoc """
   Reads an HTTP `retry-after` response header and converts it to milliseconds.
 
-  HTTP only, by design: the WS path advertises its wait in milliseconds inside a JSON frame,
-  and one parser over two units invites an off-by-1000.
+  Two units, two entry points, deliberately not one parser: `parse/1` reads the HTTP header's
+  delay-seconds, `from_ms/1` takes the milliseconds a WebSocket frame carries. One function over
+  both invites an off-by-1000; both land on the same bound.
   """
 
   require Logger
@@ -71,6 +72,24 @@ defmodule GraphConn.RetryAfter do
 
     {:error, {:rate_limited, 0}}
   end
+
+  @doc """
+  Normalizes a wait already expressed in milliseconds, as a WebSocket frame carries it.
+
+  Anything that does not describe a wait of at least a millisecond is `0`, which callers read as
+  "no wait advertised, back off on your own curve". A wait past a day is capped, so what comes back
+  can always be handed to `Process.send_after/3`.
+  """
+  @spec from_ms(advertised :: term()) :: wait_in_ms :: non_neg_integer()
+  def from_ms(advertised) when is_integer(advertised) and advertised > 0,
+    do: min(advertised, @max_wait_in_ms)
+
+  # A JSON number written with a decimal point decodes as a float, and `1986.0` is still a wait.
+  def from_ms(advertised) when is_float(advertised) and advertised >= 1,
+    do: advertised |> trunc() |> from_ms()
+
+  def from_ms(_no_usable_wait),
+    do: 0
 
   defp _find_header(headers) do
     headers

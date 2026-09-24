@@ -125,38 +125,13 @@ defmodule GraphConn.Test.MockSocket do
 
   defp _respond(
          %{type: "submitAction", id: id, capability: capability} = request,
-         %{registry_key: "action_invoker"} = state
+         %{registry_key: "action_invoker", client_type: client_type} = state
        ) do
-    capabilities = GraphConn.Mock.get_capabilities()
-
-    if capability in Map.keys(capabilities) do
-      Registry.TestSockets
-      |> Registry.register(id, {})
-
-      1..5
-      |> Enum.random()
-      |> Process.sleep()
-
-      ack =
-        %{
-          type: "acknowledged",
-          id: id
-        }
-        |> Jason.encode!()
-
-      _broadcast(state.registry_key, ack)
-      _broadcast("action_handler", Jason.encode!(request))
-    else
-      nack =
-        %{
-          type: "negativeAcknowledged",
-          id: id,
-          code: 404,
-          message: "capability #{capability} not found"
-        }
-        |> Jason.encode!()
-
-      _broadcast(state.registry_key, nack)
+    client_type
+    |> GraphConn.Mock.take_request_denial()
+    |> case do
+      {:ok, retry_after_ms} -> _deny(state, id, retry_after_ms)
+      :error -> _submit(request, id, capability, state)
     end
   end
 
@@ -192,6 +167,55 @@ defmodule GraphConn.Test.MockSocket do
       |> Jason.encode!()
 
     _broadcast(state.registry_key, response)
+  end
+
+  defp _submit(request, id, capability, state) do
+    capabilities = GraphConn.Mock.get_capabilities()
+
+    if capability in Map.keys(capabilities) do
+      Registry.TestSockets
+      |> Registry.register(id, {})
+
+      1..5
+      |> Enum.random()
+      |> Process.sleep()
+
+      ack =
+        %{
+          type: "acknowledged",
+          id: id
+        }
+        |> Jason.encode!()
+
+      _broadcast(state.registry_key, ack)
+      _broadcast("action_handler", Jason.encode!(request))
+    else
+      nack =
+        %{
+          type: "negativeAcknowledged",
+          id: id,
+          code: 404,
+          message: "capability #{capability} not found"
+        }
+        |> Jason.encode!()
+
+      _broadcast(state.registry_key, nack)
+    end
+  end
+
+  # What a rate-limiting gateway answers on the open socket: an error frame carrying the client's
+  # own id, in place of the ack.
+  defp _deny(state, id, retry_after_ms) do
+    %{
+      "error" => %{
+        "code" => 429,
+        "message" => "Rate limit exceeded",
+        "retryAfterMs" => retry_after_ms
+      },
+      "id" => id
+    }
+    |> Jason.encode!()
+    |> then(&_broadcast(state.registry_key, &1))
   end
 
   defp _broadcast(registry_key, payload) do

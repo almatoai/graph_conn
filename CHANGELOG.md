@@ -24,6 +24,11 @@ First release that supports running behind a rate-limiting WebSocket gateway.
 
 ## Fix
 
+- An in-band rate-limit denial on the action-ws socket is answered to the caller that sent the
+  request, as `{:error, request_id, {:rate_limited, retry_after_ms}}`, instead of timing out and
+  resending into the same limiter. A denial carrying no request id belongs to no caller and is
+  logged rather than answered. An advertised wait that is not a positive integer reads as `0`,
+  "back off on your own curve", and one past a day is capped.
 - An `events-ws` status change other than `:ready` no longer raises in a consumer's
   `on_status_change/3`. The callback had no catch-all, so every drop, refusal or reopen was a
   `FunctionClauseError` inside `ConnectionManager` and took the client's subtree down with it.
