@@ -80,6 +80,7 @@ defmodule GraphConn.Mock do
 
   @versions_key :versions
   @ws_upgrade_key :ws_upgrade
+  @request_deny_key :request_deny
 
   @doc """
   Arms the mock to answer the next `times` authentication requests carrying `client_id`
@@ -153,6 +154,27 @@ defmodule GraphConn.Mock do
         ) :: :ok
   def reject_ws_upgrade(client_type, times, status, retry_after_seconds),
     do: _arm({@ws_upgrade_key, client_type}, times, {status, retry_after_seconds})
+
+  @doc """
+  Arms the mock to answer the next `times` `submitAction`s from `client_type` with an in-band
+  rate-limit error advertising `retry_after_ms`, instead of acking them.
+
+  The gateway answers a denied message on the open socket rather than closing it, so the client
+  sees an error frame where it expected an ack.
+  """
+  @spec deny_next_request(
+          client_type :: String.t(),
+          times :: pos_integer(),
+          retry_after_ms :: pos_integer()
+        ) :: :ok
+  def deny_next_request(client_type, times, retry_after_ms),
+    do: _arm({@request_deny_key, client_type}, times, retry_after_ms)
+
+  @doc false
+  @spec take_request_denial(client_type :: String.t()) ::
+          {:ok, retry_after_ms :: pos_integer()} | :error
+  def take_request_denial(client_type),
+    do: _take_rate_limit({@request_deny_key, client_type})
 
   @doc """
   Closes the socket held by `client_type` alone with `code` and `msg`.

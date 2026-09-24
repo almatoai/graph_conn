@@ -54,6 +54,29 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
   end
 
   @doc """
+  Sends `{:rate_limited, request_id, retry_after_ms}` to every process registered for
+  `request_id`.
+
+  The gateway answers a denied request on the open socket instead of acking it, so the caller is
+  told to wait rather than left to time out and resend into the same limiter.
+  """
+  @spec rate_limited(
+          base_name :: atom(),
+          request_id :: String.t(),
+          retry_after_ms :: non_neg_integer(),
+          registry :: module()
+        ) :: :ok
+  def rate_limited(base_name, request_id, retry_after_ms, registry \\ LocalRequestRegistry) do
+    base_name
+    |> name()
+    |> registry.lookup(request_id)
+    |> List.wrap()
+    |> Enum.each(fn pid -> send(pid, {:rate_limited, request_id, retry_after_ms}) end)
+
+    :ok
+  end
+
+  @doc """
   Sends `{:nack, request_id, %{code: error_code, message: error_description}}`
   messages to all process that registered themselves with `request_id`.
 

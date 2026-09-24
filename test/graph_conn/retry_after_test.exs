@@ -88,6 +88,26 @@ defmodule GraphConn.RetryAfterTest do
     end
   end
 
+  describe "from_ms/1" do
+    test "takes a wait a WebSocket frame already expressed in milliseconds" do
+      assert 1_986 == RetryAfter.from_ms(1_986)
+    end
+
+    test "takes a wait written with a decimal point, which JSON decodes as a float" do
+      assert 1_986 == RetryAfter.from_ms(1_986.0)
+    end
+
+    test "reads anything that is not a wait as none advertised" do
+      for not_a_wait <- [nil, "1986", -1, 0, 0.5, :infinity, %{}] do
+        assert 0 == RetryAfter.from_ms(not_a_wait)
+      end
+    end
+
+    test "caps a wait no gateway could legitimately advertise, so a caller can arm a timer on it" do
+      assert 86_400_000 == RetryAfter.from_ms(999_999_999_999)
+    end
+  end
+
   describe "rate_limited/1" do
     test "normalizes a 429's headers into the internal error" do
       {result, _log} = with_log(fn -> RetryAfter.rate_limited([{"retry-after", "2"}]) end)
