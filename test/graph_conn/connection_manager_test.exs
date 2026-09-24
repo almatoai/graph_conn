@@ -902,6 +902,75 @@ defmodule GraphConn.ConnectionManagerTest do
       :ok
     end
 
+    test "escalates across accept-then-close cycles rather than pacing flat forever" do
+      _put_env(:retry_initial_ms, 100)
+      _put_env(:stability_window_ms, 60_000)
+      _open_action_ws()
+
+      # A socket that is accepted and dropped straight back has not proved anything, so the curve
+      # it came back on is the one the next reopen continues from.
+      delays = Enum.map(1..3, fn _cycle -> _close_and_measure_reopen() end)
+
+      assert [first, _second, third] = delays
+      assert third > first * 2
+    end
+
+    test "returns the curve to its seed once a socket has stayed up long enough" do
+      _put_env(:retry_initial_ms, 100)
+      _put_env(:stability_window_ms, 200)
+      _open_action_ws()
+
+      # Two accept-then-close cycles put the curve past its seed. The curve is the doubling
+      # itself, with no jitter on it, so these are exact rather than bands that can overlap.
+      Enum.each(1..2, fn _cycle -> _close_and_measure_reopen() end)
+      assert 400 == _reopen_curve(:"action-ws")
+
+      _await_conn_pid(:"action-ws", System.monotonic_time(:millisecond) + 25_000)
+      Process.sleep(400)
+
+      _close_and_measure_reopen()
+
+      assert 200 == _reopen_curve(:"action-ws")
+    end
+
+    test "keeps a healthy socket's stability clock when a consumer re-opens it" do
+      _put_env(:retry_initial_ms, 100)
+      _put_env(:stability_window_ms, 200)
+      _open_action_ws()
+
+      _close_and_measure_reopen()
+      _await_conn_pid(:"action-ws", System.monotonic_time(:millisecond) + 25_000)
+      Process.sleep(400)
+
+      # Asking for a connection that is already up is how a consumer reopens a socket it cannot
+      # tell is down. It hands back the live one, and must not restart the clock that decides
+      # whether the socket has proved itself.
+      GraphConn.open_ws_connection(TestConn, :"action-ws")
+      assert :ready = GenServer.call(_manager_pid(), :status)
+
+      _close_and_measure_reopen()
+
+      assert 200 == _reopen_curve(:"action-ws")
+    end
+
+    test "measures stability against the backoff ceiling rather than a fixed window" do
+      _put_env(:retry_initial_ms, 100)
+      _put_env(:retry_max_ms, 400)
+      _open_action_ws()
+
+      # The window is three times the ceiling, so 1_200ms here. Two cycles first, to put the
+      # curve at the ceiling where carrying and starting over give different numbers.
+      Enum.each(1..2, fn _cycle -> _close_and_measure_reopen() end)
+      assert 400 == _reopen_curve(:"action-ws")
+
+      _await_conn_pid(:"action-ws", System.monotonic_time(:millisecond) + 25_000)
+      Process.sleep(1_400)
+
+      _close_and_measure_reopen()
+
+      assert 200 == _reopen_curve(:"action-ws")
+    end
+
     test "stops reopening when the close says the token itself was refused" do
       _open_action_ws()
 
@@ -936,6 +1005,23 @@ defmodule GraphConn.ConnectionManagerTest do
       _await_conn_pid_cleared(:"action-ws", System.monotonic_time(:millisecond) + 15_000)
       _await_conn_pid(:"action-ws", System.monotonic_time(:millisecond) + 25_000)
     end
+  end
+
+  # Drops the socket and reports how long the reopen it schedules is paced for.
+  defp _close_and_measure_reopen do
+    _await_registered_sockets("invoker", 1, System.monotonic_time(:millisecond) + 25_000)
+    Mock.close_ws_connection("invoker", 1011, "go away for now")
+    _await_conn_pid_cleared(:"action-ws", System.monotonic_time(:millisecond) + 15_000)
+
+    [{_key, due_at}] = :ets.lookup(TestConn, {:"action-ws", :reopen_due_at})
+
+    due_at - System.monotonic_time(:millisecond)
+  end
+
+  defp _reopen_curve(api) do
+    [{_key, curve}] = :ets.lookup(TestConn, {api, :reopen_curve})
+
+    curve
   end
 
   defp _await_conn_pid(api, deadline) do

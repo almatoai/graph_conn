@@ -82,6 +82,13 @@ defmodule GraphConn do
   for the upgrade itself rather than for the pacing. It therefore has to exceed the upgrade round
   trip -- against a Graph behind TLS and a gateway, 500 may not.
 
+  `:stability_window_ms` is how long a WebSocket connection must stay up before its next drop
+  starts the backoff curve over. Below it the curve continues, so a socket the Graph accepts and
+  drops straight back escalates instead of reconnecting at the same pace forever. It defaults to
+  three times `:retry_max_ms` -- 30s on the defaults -- rather than a fixed number, so raising the
+  ceiling cannot leave a window shorter than a single retry step. A `429` episode escalates the
+  same curve, so a later ordinary drop can start from where a rate limit left it.
+
   The worst case a caller can block for is `:retry_max_ms + :startup_wait_ms`, exactly 10.5s on the
   defaults, which is what a consumer's own request timeout has to accommodate. Note that
   `:retry_initial_ms` above `:retry_max_ms` silently raises that ceiling to the seed.

@@ -24,6 +24,10 @@ First release that supports running behind a rate-limiting WebSocket gateway.
 
 ## Fix
 
+- A socket that is accepted and dropped straight back continues the backoff curve instead of
+  restarting it, so accept-then-close cycles escalate rather than pacing flat at the first step
+  forever. A connection that stays up for `:stability_window_ms` -- three times `:retry_max_ms`,
+  30s on the defaults -- starts the curve over.
 - An in-band rate-limit denial on the action-ws socket is answered to the caller that sent the
   request, as `{:error, request_id, {:rate_limited, retry_after_ms}}`, instead of timing out and
   resending into the same limiter. A denial carrying no request id belongs to no caller and is
