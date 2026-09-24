@@ -77,11 +77,14 @@ defmodule GraphConn do
   may not be coming at all -- a client left out of the supervision tree, say, or disabled by
   configuration. Set it to `0` to skip the grace period entirely and fail such calls immediately.
 
-  The same budget covers a WebSocket connection that has dropped and is waiting on its paced
-  reopen. That reopen lands between one and two times `:retry_initial_ms` (capped at
-  `:retry_max_ms`), so set this above twice `:retry_initial_ms` if a request made during a
-  reconnect should be resent rather than return `{:error, :ws_connection_down}`. The defaults do
-  not overlap: 500 against a 1_000-2_000ms reopen.
+  A WebSocket connection that has dropped is a longer wait, and needs no configuration: a caller
+  waits out the reopen already on the clock and then this budget on top, so it is the grace period
+  for the upgrade itself rather than for the pacing. It therefore has to exceed the upgrade round
+  trip -- against a Graph behind TLS and a gateway, 500 may not.
+
+  The worst case a caller can block for is `:retry_max_ms + :startup_wait_ms`, exactly 10.5s on the
+  defaults, which is what a consumer's own request timeout has to accommodate. Note that
+  `:retry_initial_ms` above `:retry_max_ms` silently raises that ceiling to the seed.
 
   ### Invoke call
 
@@ -190,10 +193,10 @@ defmodule GraphConn do
 
       Two callers arriving together may get different answers, by design. The first to find the
       connection missing is the one that tries to open it, so it is the one told why that failed;
-      everyone behind it waits for the connection to come back and gives up with
-      `{:error, :ws_connection_down}` after `:startup_wait_ms`. Only a `429` holds the rest back
-      explicitly, with `{:error, {:rate_limited, retry_after_ms}}`. Fail fast for the caller that
-      triggered it, best effort for the others.
+      everyone behind it waits for the connection to come back -- including any reopen already on
+      the clock -- and gives up with `{:error, :ws_connection_down}` once that is spent. Only a
+      `429` holds the rest back explicitly, with `{:error, {:rate_limited, retry_after_ms}}`. Fail
+      fast for the caller that triggered it, best effort for the others.
       """
       @spec execute(target_api :: atom(), request :: GraphConn.Request.t(), opts :: Keyword.t()) ::
               :ok

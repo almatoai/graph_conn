@@ -636,6 +636,79 @@ defmodule GraphConn.ConnectionManagerTest do
       assert_receive {:conn_status_changed, :"action-ws", :ready}, 25_000
     end
 
+    test "waits out a paced reopen instead of telling the caller the connection is down" do
+      _put_env(:retry_initial_ms, 1_000)
+      _put_startup_wait(500)
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+
+      GraphConn.open_ws_connection(TestConn, :"action-ws")
+      assert_receive {:conn_status_changed, :"action-ws", :ready}, 15_000
+      assert [{_key, conn_pid}] = :ets.lookup(TestConn, {:"action-ws", :conn_pid})
+
+      Process.exit(conn_pid, :kill)
+      _await_conn_pid_cleared(:"action-ws", System.monotonic_time(:millisecond) + 5_000)
+
+      # The reopen is paced into (1_000, 2_000], and `:startup_wait_ms` defaults to 500. A caller
+      # that only waits the shorter of the two is told the connection is down while the client is
+      # a second away from bringing it back.
+      assert :ok = TestConn.execute(:"action-ws", _request())
+    end
+
+    test "stops at the reopen it first saw rather than following an escalating curve" do
+      # A short seed under a high ceiling, so every refused reopen roughly doubles the next due
+      # time. A caller that re-read the due time on each poll would be dragged along the whole
+      # curve; one that reads it once is bounded by the reopen it arrived on.
+      _put_startup_wait(500)
+      _put_env(:retry_initial_ms, 100)
+      _put_env(:retry_max_ms, 100_000)
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+
+      GraphConn.open_ws_connection(TestConn, :"action-ws")
+      assert_receive {:conn_status_changed, :"action-ws", :ready}, 15_000
+      assert [{_key, conn_pid}] = :ets.lookup(TestConn, {:"action-ws", :conn_pid})
+
+      Mock.reject_ws_upgrade("invoker", 10, 503, :no_hint)
+      Process.exit(conn_pid, :kill)
+      _await_conn_pid_cleared(:"action-ws", System.monotonic_time(:millisecond) + 5_000)
+
+      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:"action-ws", _request()) end)
+
+      assert {:error, :ws_connection_down} = result
+
+      # The first reopen is due inside 200ms and the grace period is 500, so the budget is under a
+      # second. The steps after it are 400, 800, 1_600ms and climbing.
+      assert elapsed < 1_500
+    end
+
+    test "answers a rate limit straight away instead of waiting out its reopen" do
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+
+      GraphConn.open_ws_connection(TestConn, :"action-ws")
+      assert_receive {:conn_status_changed, :"action-ws", :ready}, 15_000
+      assert [{_key, conn_pid}] = :ets.lookup(TestConn, {:"action-ws", :conn_pid})
+
+      # The drop's own reopen is refused with a 429, which stamps a hold and paces the reopen
+      # after it a further two seconds out.
+      Mock.reject_ws_upgrade("invoker", 1, 429, 2)
+      Process.exit(conn_pid, :kill)
+      _await_pending_reopen(:"action-ws", System.monotonic_time(:millisecond) + 10_000)
+
+      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:"action-ws", _request()) end)
+
+      assert {:error, {:rate_limited, _ms}} = result
+
+      # The advertised wait is the caller's to honour, not time to spend inside `execute/4`.
+      assert elapsed < 500
+    end
+
     test "leaves no hold behind after a socket simply drops" do
       assert {:ok, _sup_pid} = TestClient.start()
       assert_receive {:conn_status_changed, :ready}, 15_000
