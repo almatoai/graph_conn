@@ -74,10 +74,16 @@ defmodule GraphConn.EventHandler do
       @impl GraphConn
       @doc false
       def on_status_change(:"events-ws", :ready, internal_state) do
-        Logger.info("[EventHandler] New EventWS status: :ready}")
+        Logger.info("[EventHandler] New EventWS status: :ready")
         register()
         subscribe()
       end
+
+      # Anything else -- a drop, a refusal, a reopen in progress -- is `ConnectionManager`'s to
+      # recover from. Raising here happens inside it, under `:one_for_all`, and takes the client's
+      # whole subtree down with it.
+      def on_status_change(:"events-ws", new_status, _internal_state),
+        do: Logger.info("[EventHandler] New EventWS status: #{inspect(new_status)}")
 
       @impl GraphConn
       @doc false
