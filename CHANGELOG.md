@@ -50,16 +50,16 @@ First release that supports running behind a rate-limiting WebSocket gateway.
   request as `{:error, request_id, {:not_sent, reason}}`, also added to
   `ActionApi.execution_error()`.
 - BREAKING: a request against a WebSocket API whose connection is down now returns
-  `{:error, :ws_connection_down}` once `:startup_wait_ms` (500 by default) is spent, where it
-  previously blocked until the connection came back and then succeeded.
+  `{:error, :ws_connection_down}` rather than blocking until the connection came back and then
+  succeeding. A reopen already on the clock is waited out first, so an ordinary drop does not fail
+  the requests made during it; the caller blocks for at most `:retry_max_ms + :startup_wait_ms`,
+  10.5s on the defaults, which is what a consumer's own request timeout has to accommodate.
 - Depends on the published `gun ~> 2.1` instead of a fork of it. Connecting to the Graph through a
   client's HTTP proxy is unchanged.
 - A WebSocket connection that drops is now reopened on the backoff curve rather than immediately,
   so the first reconnect after a drop waits between one and two times `:retry_initial_ms` instead
-  of no time at all. A request made during that window is only resent once the connection is back,
-  so `:startup_wait_ms` must exceed twice `:retry_initial_ms` (or `:retry_max_ms`, if that is
-  lower) for it to be resent rather than return `{:error, :ws_connection_down}`. On the defaults
-  (500 against a 1_000-2_000ms reopen) it returns the error.
+  of no time at all. A request made during that window waits the reopen out and is resent once the
+  connection is back.
 
 # 1.9.13
 

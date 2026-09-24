@@ -118,9 +118,12 @@ defmodule GraphConn.ConnectionManager do
   Returns `{:error, :not_started}` if no connection is ready for `base_name` (see
   `_await_versions/1`), or `{:error, {:rate_limited, retry_after_ms}}` if a WS API's connection is
   waiting out a rate limit before it reopens -- `retry_after_ms` is how long to wait, in
-  milliseconds, and is `0` once the window has passed. A WS connection that does not come back
-  inside `:startup_wait_ms` is `{:error, :ws_connection_down}`, kept distinct from
-  `:not_started` so a flapping socket cannot be mistaken for a client that never came up.
+  milliseconds, and is `0` once the window has passed. A WS connection that does not come back is
+  `{:error, :ws_connection_down}`, kept distinct from `:not_started` so a flapping socket cannot be
+  mistaken for a client that never came up. A reopen already on the clock is waited out first, so
+  the budget is that reopen's due time plus `:startup_wait_ms` -- at most
+  `:retry_max_ms + :startup_wait_ms`, exactly 10.5s on the defaults, since a reopen that carries no
+  advertised wait can never be delayed past the cap.
   """
   @spec execute(
           base_name :: atom(),
@@ -276,6 +279,7 @@ defmodule GraphConn.ConnectionManager do
   def handle_info({:reopen_ws, api, _retry_in, _hold}, %State{desired_status: desired} = state)
       when desired != :ready do
     _update_ets(state.base_name, {api, :reopen_at}, nil)
+    _update_ets(state.base_name, {api, :reopen_due_at}, nil)
     {:noreply, state}
   end
 
@@ -351,6 +355,7 @@ defmodule GraphConn.ConnectionManager do
         # Nothing is scheduled to reopen this, so a stamp left behind would park callers on
         # "retry now" forever. Clearing it puts them back on the ordinary spin.
         _update_ets(state.base_name, {target_api, :reopen_at}, nil)
+        _update_ets(state.base_name, {target_api, :reopen_due_at}, nil)
         {:reply, no_version_found, state}
     end
   end
@@ -386,6 +391,7 @@ defmodule GraphConn.ConnectionManager do
 
     _update_ets(state.base_name, {target_api, :conn_pid}, conn_pid)
     _update_ets(state.base_name, {target_api, :reopen_at}, nil)
+    _update_ets(state.base_name, {target_api, :reopen_due_at}, nil)
     _status_changed(target_api, :ready, state)
     {:reply, {:ok, conn_pid}, state}
   end
@@ -401,8 +407,8 @@ defmodule GraphConn.ConnectionManager do
 
   # Any other upgrade failure. Deliberately does NOT stamp: it is not a rate limit, so later
   # callers wait for the connection to come back rather than being handed a wait to honour --
-  # and they give up with `{:error, :ws_connection_down}` once `:startup_wait_ms` is spent. Only
-  # the caller that hit the failure is told what it was.
+  # they wait out the reopen this schedules, then `:startup_wait_ms`, before
+  # `{:error, :ws_connection_down}`. Only the caller that hit the failure is told what it was.
   defp _failed_reopen(%State{} = state, target_api, retry_in, reason, reopen_tag) do
     Logger.error("Opening #{target_api} WS connection failed: #{inspect(reason)}")
     _reopen_later(state, target_api, retry_in, :no_hold, reopen_tag)
@@ -436,6 +442,9 @@ defmodule GraphConn.ConnectionManager do
     Process.send_after(self(), {reopen_tag, target_api, next_current, hold}, delay)
     _update_ets(state.base_name, {target_api, :conn_pid}, nil)
     _update_ets(state.base_name, {target_api, :reopen_at}, _stamp(hold, reopen_at))
+    # Read only by the caller-side spin. `:reopen_at` is the caller-facing hold and is set for a
+    # `429` alone, so pacing must not ride on it or every drop would report a rate limit.
+    _update_ets(state.base_name, {target_api, :reopen_due_at}, reopen_at)
     _log_retry("#{target_api} WS upgrade", delay)
 
     reopen_at
@@ -455,6 +464,7 @@ defmodule GraphConn.ConnectionManager do
     )
 
     _update_ets(state.base_name, {target_api, :reopen_at}, nil)
+    _update_ets(state.base_name, {target_api, :reopen_due_at}, nil)
 
     %State{state | refused_apis: MapSet.put(state.refused_apis, target_api)}
   end
@@ -721,12 +731,12 @@ defmodule GraphConn.ConnectionManager do
     end
   end
 
-  # Bounded by the same `:startup_wait_ms` deadline `execute/4` already waits on, and logged once
-  # per caller rather than once per poll: the curve now reaches `:retry_max_ms`, so an unbounded
-  # spin is both a caller that never returns and thousands of log lines per caller per outage.
+  # Bounded by any reopen already due plus `:startup_wait_ms`, and logged once per caller rather
+  # than once per poll: the curve reaches `:retry_max_ms`, so an unbounded spin is both a caller
+  # that never returns and thousands of log lines per caller per outage.
   defp _spin_for_ws_connection(base_name, target_api, :no_deadline_yet) do
     Logger.warning("#{target_api} WS connection is down, waiting for it to come back...")
-    deadline = System.monotonic_time(:millisecond) + _startup_wait()
+    deadline = _spin_deadline(base_name, target_api)
 
     _spin_for_ws_connection(base_name, target_api, deadline)
   end
@@ -743,6 +753,21 @@ defmodule GraphConn.ConnectionManager do
       _still_waiting ->
         Process.sleep(@startup_poll_interval)
         _get_ws_connection(base_name, target_api, deadline)
+    end
+  end
+
+  # A reopen already on the clock is worth waiting out: `:startup_wait_ms` is shorter than the
+  # curve's first step, so a caller that only waits the shorter of the two is told the connection
+  # is down while the client is a second away from bringing it back. Read once, so an escalating
+  # curve cannot hold a caller indefinitely.
+  defp _spin_deadline(base_name, target_api) do
+    startup_deadline = System.monotonic_time(:millisecond) + _startup_wait()
+
+    base_name
+    |> :ets.lookup({target_api, :reopen_due_at})
+    |> case do
+      [{_key, due_at}] when is_integer(due_at) -> max(startup_deadline, due_at + _startup_wait())
+      _no_reopen_scheduled -> startup_deadline
     end
   end
 
