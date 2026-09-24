@@ -33,6 +33,62 @@ defmodule GraphConn.Mock do
     |> Map.get(token, @default_token_lifetime)
   end
 
+  @doc """
+  Makes the mock issue `expires_at` verbatim for `token`, whatever its type.
+
+  Scoped to one token for the same reason `put_token_lifetime/2` is. A Graph answering with a
+  float, a string or anything else is what a `pos_integer()` spec cannot enforce on its own.
+  `:absent` omits the field entirely, which is what a `200` carrying something other than a token
+  looks like.
+  """
+  @spec put_expires_at(token :: String.t(), expires_at :: term()) :: :ok
+  def put_expires_at(token, expires_at) when is_binary(token) do
+    :graph_conn
+    |> Application.get_env(:mock_expires_at, %{})
+    |> Map.put(token, expires_at)
+    |> then(&Application.put_env(:graph_conn, :mock_expires_at, &1))
+  end
+
+  @doc """
+  Makes the mock answer `token`'s authentication with `body` verbatim, bypassing JSON encoding.
+
+  A gateway in front of the Graph can answer `200` with an HTML error page, which is not a shape
+  a JSON decoder can be handed.
+  """
+  @spec put_auth_body(token :: String.t(), body :: String.t()) :: :ok
+  def put_auth_body(token, body) when is_binary(token) and is_binary(body) do
+    :graph_conn
+    |> Application.get_env(:mock_auth_bodies, %{})
+    |> Map.put(token, body)
+    |> then(&Application.put_env(:graph_conn, :mock_auth_bodies, &1))
+  end
+
+  @doc false
+  @spec auth_body(token :: String.t()) :: String.t() | :from_identity
+  def auth_body(token) do
+    :graph_conn
+    |> Application.get_env(:mock_auth_bodies, %{})
+    |> Map.get(token, :from_identity)
+  end
+
+  @doc false
+  @spec expires_at(token :: String.t()) :: term()
+  def expires_at(token) do
+    :graph_conn
+    |> Application.get_env(:mock_expires_at, %{})
+    |> Map.get(token, :from_lifetime)
+    |> case do
+      :from_lifetime -> _issued_expires_at(token)
+      overridden -> overridden
+    end
+  end
+
+  defp _issued_expires_at(token) do
+    DateTime.utc_now()
+    |> DateTime.to_unix(:millisecond)
+    |> Kernel.+(token_lifetime(token))
+  end
+
   @doc "Returns the currently configured capabilities map."
   @spec get_capabilities() :: map()
   def get_capabilities do

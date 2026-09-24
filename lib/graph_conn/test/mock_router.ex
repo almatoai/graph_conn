@@ -246,15 +246,31 @@ defmodule GraphConn.Test.MockRouter do
   end
 
   defp _credentials(token) do
+    token
+    |> Mock.auth_body()
+    |> case do
+      :from_identity -> _identity_with_expiry(token)
+      raw_body -> raw_body
+    end
+  end
+
+  defp _identity_with_expiry(token) do
+    identity = _identity(token)
+
+    token
+    |> Mock.expires_at()
+    |> case do
+      :absent -> identity
+      expires_at -> Map.put(identity, "expires-at", expires_at)
+    end
+  end
+
+  defp _identity(token) do
     %{
       "_APPLICATION" => "cju16o7cf0000mz77pbwbhl3q_cjix82tev000ou473gko8jgey",
       "_IDENTITY" => "engine1_main@customer1.org",
       "_IDENTITY_ID" => "ck2uexxlp005c5y38z00hbqhv_ck2uexyt9006r5y384wsfw2vp",
       "_TOKEN" => token,
-      "expires-at" =>
-        DateTime.utc_now()
-        |> DateTime.to_unix(:millisecond)
-        |> Kernel.+(Mock.token_lifetime(token)),
       "type" => "Bearer"
     }
   end
@@ -266,6 +282,12 @@ defmodule GraphConn.Test.MockRouter do
       "Bearer " <> @valid_standalone_token -> fun.()
       _ -> _unauthorized(conn)
     end
+  end
+
+  defp _success(conn, body) when is_binary(body) do
+    conn
+    |> Plug.Conn.put_resp_content_type("application/json")
+    |> Plug.Conn.send_resp(200, body)
   end
 
   defp _success(conn, body) do
