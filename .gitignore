@@ -27,5 +27,4 @@ graph_conn-*.tar
 /config/git_ignored.exs
 
 # this file appear when ssh capability is invoked from AH docker container
-/ssh-keys/known_hosts
 /.elixir_ls/
