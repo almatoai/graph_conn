@@ -24,6 +24,9 @@ First release that supports running behind a rate-limiting WebSocket gateway.
 
 ## Fix
 
+- An `events-ws` status change other than `:ready` no longer raises in a consumer's
+  `on_status_change/3`. The callback had no catch-all, so every drop, refusal or reopen was a
+  `FunctionClauseError` inside `ConnectionManager` and took the client's subtree down with it.
 - A WebSocket connection the Graph closes with `1008` is no longer reopened on the backoff curve.
   Reconnecting with a token the Graph just refused can only be refused again; the close reaches
   `on_status_change/3` as `{:disconnected, {:rejected_by_server, message}}`, and the connection is
