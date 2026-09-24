@@ -56,6 +56,10 @@ defmodule GraphConn.ConnectionManager do
   @default_retry_floor_max 300_000
   @default_token_refresh_ratio 0.95
 
+  # How many backoff ceilings a socket must stay up for before it has proved itself. See
+  # `_stability_window/0`.
+  @stability_ceilings 3
+
   # Derived from the backoff ceiling, so raising it cannot silently narrow the margin.
   @refresh_margin_denials 3
 
@@ -371,10 +375,10 @@ defmodule GraphConn.ConnectionManager do
     |> case do
       {:ok, conn_pid} ->
         _conn_ref = Process.monitor(conn_pid)
-        _ws_connection_opened(state, target_api, conn_pid)
+        _ws_connection_opened(state, target_api, conn_pid, :new)
 
       {:error, {:already_started, conn_pid}} ->
-        _ws_connection_opened(state, target_api, conn_pid)
+        _ws_connection_opened(state, target_api, conn_pid, :already_up)
 
       {:error, {:rate_limited, advertised_ms}} ->
         _rate_limited_reopen(state, target_api, retry_in, advertised_ms, reopen_tag)
@@ -386,15 +390,24 @@ defmodule GraphConn.ConnectionManager do
     end
   end
 
-  defp _ws_connection_opened(%State{} = state, target_api, conn_pid) do
+  defp _ws_connection_opened(%State{} = state, target_api, conn_pid, opened) do
     state = %{state | ws_connections: Map.put(state.ws_connections, conn_pid, target_api)}
 
     _update_ets(state.base_name, {target_api, :conn_pid}, conn_pid)
     _update_ets(state.base_name, {target_api, :reopen_at}, nil)
     _update_ets(state.base_name, {target_api, :reopen_due_at}, nil)
+    _stamp_opened_at(state.base_name, target_api, opened)
     _status_changed(target_api, :ready, state)
     {:reply, {:ok, conn_pid}, state}
   end
+
+  # A socket that was already up keeps the `:opened_at` it has: rewriting it would wipe the uptime
+  # its stability is judged on, and every `open_ws_connection/2` on a live connection lands here.
+  defp _stamp_opened_at(base_name, target_api, :new),
+    do: _update_ets(base_name, {target_api, :opened_at}, System.monotonic_time(:millisecond))
+
+  defp _stamp_opened_at(_base_name, _target_api, :already_up),
+    do: :ok
 
   # A 429, and only a 429. The stamp is what lets `_get_ws_connection/2` answer later callers
   # from ETS; without it each of them mounts its own upgrade and the retry rate follows caller
@@ -445,6 +458,7 @@ defmodule GraphConn.ConnectionManager do
     # Read only by the caller-side spin. `:reopen_at` is the caller-facing hold and is set for a
     # `429` alone, so pacing must not ride on it or every drop would report a rate limit.
     _update_ets(state.base_name, {target_api, :reopen_due_at}, reopen_at)
+    _update_ets(state.base_name, {target_api, :reopen_curve}, next_current)
     _log_retry("#{target_api} WS upgrade", delay)
 
     reopen_at
@@ -484,12 +498,60 @@ defmodule GraphConn.ConnectionManager do
   end
 
   defp _reopen_dropped(%State{} = state, target_api) do
+    retry_in = _dropped_curve(state.base_name, target_api)
+
     state.base_name
     |> _hold_until(target_api)
     |> case do
-      nil -> _reopen_later(state, target_api, _initial(), :no_hold, :reopen_dropped_ws)
+      nil -> _reopen_later(state, target_api, retry_in, :no_hold, :reopen_dropped_ws)
       _already_pending -> :noop
     end
+  end
+
+  # A socket that stayed up past the window proved itself, so its next drop starts the curve over.
+  # One accepted and dropped straight back proved nothing and continues where it left off --
+  # otherwise accept-then-close cycles pace flat at the first step forever, never escalating, and
+  # each cycle costs the consumer an `on_status_change/3`.
+  defp _dropped_curve(base_name, target_api) do
+    proved_itself? = _uptime(base_name, target_api) >= _stability_window()
+
+    _dropped_curve(base_name, target_api, proved_itself?)
+  end
+
+  defp _dropped_curve(_base_name, _target_api, true),
+    do: _initial()
+
+  defp _dropped_curve(base_name, target_api, false),
+    do: _carried_curve(base_name, target_api)
+
+  # No stamp means no socket has been up under this client yet, which is a fresh curve either way.
+  defp _uptime(base_name, target_api) do
+    base_name
+    |> :ets.lookup({target_api, :opened_at})
+    |> case do
+      [{_key, opened_at}] when is_integer(opened_at) ->
+        System.monotonic_time(:millisecond) - opened_at
+
+      _never_opened ->
+        _stability_window()
+    end
+  end
+
+  defp _carried_curve(base_name, target_api) do
+    base_name
+    |> :ets.lookup({target_api, :reopen_curve})
+    |> case do
+      [{_key, curve}] when is_integer(curve) -> curve
+      _no_curve_yet -> _initial()
+    end
+  end
+
+  # Derived from the backoff ceiling, so raising that cannot leave a window shorter than a single
+  # retry step -- a socket brought back by a 60s wait has not proved itself by outliving 30s.
+  defp _stability_window do
+    ceiling = Application.get_env(:graph_conn, :retry_max_ms, @default_retry_max)
+
+    Application.get_env(:graph_conn, :stability_window_ms, ceiling * @stability_ceilings)
   end
 
   defp _refresh_in(lifetime, _margin) when lifetime <= 0,
