@@ -60,10 +60,7 @@ defmodule GraphConn.InstrumenterTest do
     end
 
     test "carry a native duration on an upgrade" do
-      GraphConn.TestClient.stop()
-      on_exit(&GraphConn.TestClient.stop/0)
-      {:ok, _sup_pid} = GraphConn.TestClient.start()
-      assert_receive {:conn_status_changed, :ready}, 15_000
+      _start_client()
 
       GraphConn.open_ws_connection(GraphConn.TestConn, :"action-ws")
 
@@ -73,12 +70,13 @@ defmodule GraphConn.InstrumenterTest do
     end
 
     test "carry a native duration on a send, which is where milliseconds run out" do
-      # The invoker started in `test_helper.exs` is already connected, so this disturbs no other
-      # client's socket. Spawned, because the event fires when the frame goes out -- long before
-      # the handler that has to answer it does.
-      spawn(fn ->
-        ActionInvoker.execute("ExecuteCommand", %{"command" => "ls", "host" => "localhost"})
-      end)
+      # This client's own socket rather than the standalone invoker `test_helper.exs` shares with
+      # every other test: an unacked request on that one is retried for ~9s after this test ends,
+      # and a resend consumes a rate-limit arm a later test set for itself.
+      _start_client()
+
+      assert :ok =
+               GraphConn.TestConn.execute(:"action-ws", %GraphConn.Request{path: "capabilities"})
 
       assert_receive {[:graph_conn, :ws_sent_bytes], measurements}, 25_000
       assert %{duration: duration, duration_native: duration_native} = measurements
@@ -87,6 +85,35 @@ defmodule GraphConn.InstrumenterTest do
       # A send is a local call into the gun process, which is the whole reason the millisecond
       # reading is not enough: this is the measurement that survives at that scale.
       assert duration_native > 0
+    end
+  end
+
+  # A client of this test's own, started only once the previous one's sockets are gone from the
+  # mock -- otherwise the next client never reaches `:ready` and a second test in a describe waits
+  # for a status change that never arrives. `{:client, _}` is the client-scoped key: the bare
+  # `"action_invoker"` routing key is shared with the standalone invoker, which never goes away.
+  defp _start_client do
+    _await_no_client_sockets("invoker", System.monotonic_time(:millisecond) + 15_000)
+
+    GraphConn.TestClient.stop()
+    on_exit(&GraphConn.TestClient.stop/0)
+    {:ok, _sup_pid} = GraphConn.TestClient.start()
+    assert_receive {:conn_status_changed, :ready}, 15_000
+  end
+
+  defp _await_no_client_sockets(client_type, deadline) do
+    Registry.TestSockets
+    |> Registry.lookup({:client, client_type})
+    |> case do
+      [] ->
+        :ok
+
+      still_registered ->
+        assert System.monotonic_time(:millisecond) < deadline,
+               "#{client_type} still had #{length(still_registered)} sockets registered"
+
+        Process.sleep(10)
+        _await_no_client_sockets(client_type, deadline)
     end
   end
 
