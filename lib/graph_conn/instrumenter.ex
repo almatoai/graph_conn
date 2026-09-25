@@ -16,7 +16,7 @@ defmodule GraphConn.Instrumenter do
 
   `:duration` is milliseconds, the unit consumers have always read. `:duration_native` is the same
   interval unconverted, matching `:telemetry.span/3`, for a consumer that needs resolution finer
-  than a millisecond -- a local call such as a WebSocket send usually takes less than one.
+  than a millisecond, which `duration` cannot express for an interval under one.
 
   Both come from a single reading, so they cannot disagree.
   """
