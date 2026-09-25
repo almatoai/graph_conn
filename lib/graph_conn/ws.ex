@@ -151,11 +151,12 @@ defmodule GraphConn.WS do
           {false, error}
       end
 
-    Instrumenter.execute(
-      :ws_upgrade,
-      %{time: DateTime.utc_now(), duration: Instrumenter.duration(mono_start)},
-      %{node: Node.self(), success: success?}
-    )
+    measurements =
+      mono_start
+      |> Instrumenter.durations()
+      |> Map.put(:time, DateTime.utc_now())
+
+    Instrumenter.execute(:ws_upgrade, measurements, %{node: Node.self(), success: success?})
 
     response
   end
@@ -172,16 +173,13 @@ defmodule GraphConn.WS do
     mono_start = System.monotonic_time()
     :ok = :gun.ws_send(conn_pid, stream_ref, {:text, body})
 
-    :ok =
-      Instrumenter.execute(
-        :ws_sent_bytes,
-        %{
-          time: DateTime.utc_now(),
-          duration: Instrumenter.duration(mono_start),
-          bytes: byte_size(body)
-        },
-        %{node: Node.self()}
-      )
+    durations = Instrumenter.durations(mono_start)
+
+    measurements =
+      %{time: DateTime.utc_now(), bytes: byte_size(body)}
+      |> Map.merge(durations)
+
+    :ok = Instrumenter.execute(:ws_sent_bytes, measurements, %{node: Node.self()})
   end
 
   # Without it gun opens the stream on the proxy connection instead of inside the tunnel.

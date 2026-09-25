@@ -14,6 +14,9 @@ First release that supports running behind a rate-limiting WebSocket gateway.
   several clients share the mock; unset, every token lives ten minutes as before.
 - `GraphConn.ActionApi.Invoker.State` no longer carries `ws_status`. It was written once and never
   read, and every WebSocket status change after the first was logged as unhandled.
+- Every timed telemetry event carries `duration_native` alongside `duration`: the same interval in
+  the VM's native time unit, for a consumer that needs finer resolution than a millisecond. A
+  WebSocket send usually takes under one, so `duration` reads `0` for it. `duration` is unchanged.
 - `status/1` takes a timeout. The manager answering it shares a mailbox with token refreshes, so
   it can be busy for as long as one takes; without this the wait was fixed at five seconds and
   overrunning it exited the calling process.
