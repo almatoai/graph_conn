@@ -1158,6 +1158,10 @@ defmodule GraphConn.ConnectionManagerTest do
   # Drops the socket and reports the curve the reopen it schedules was placed on. The curve is the
   # doubling itself, carrying no jitter and no wall clock, so it is exact.
   defp _close_and_read_curve do
+    # The previous cycle's reopen has to have COMPLETED first -- a successful open is what clears
+    # the due time. Without this the wait below is satisfied by the previous cycle's stamp and
+    # reads the curve it left behind.
+    _await_reopen_cleared(:"action-ws", System.monotonic_time(:millisecond) + 25_000)
     _await_registered_sockets("invoker", 1, System.monotonic_time(:millisecond) + 25_000)
     Mock.close_ws_connection("invoker", 1011, "go away for now")
     # Not `conn_pid` going nil: the `:DOWN` handler clears that BEFORE it schedules the reopen, so
@@ -1166,6 +1170,22 @@ defmodule GraphConn.ConnectionManagerTest do
     _await_reopen_scheduled(:"action-ws", System.monotonic_time(:millisecond) + 15_000)
 
     _reopen_curve(:"action-ws")
+  end
+
+  defp _await_reopen_cleared(api, deadline) do
+    TestConn
+    |> :ets.lookup({api, :reopen_due_at})
+    |> case do
+      [{_key, due_at}] when is_integer(due_at) ->
+        assert System.monotonic_time(:millisecond) < deadline,
+               "#{api} reopen never completed"
+
+        Process.sleep(5)
+        _await_reopen_cleared(api, deadline)
+
+      _cleared_or_never_set ->
+        :ok
+    end
   end
 
   defp _await_reopen_scheduled(api, deadline) do
