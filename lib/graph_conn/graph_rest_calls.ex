@@ -263,14 +263,19 @@ defmodule GraphConn.GraphRestCalls do
       |> Finch.request(Module.concat(base_name, Finch), receive_timeout: timeout)
 
     spawn(fn ->
-      Instrumenter.execute(
-        :rest,
+      durations = Instrumenter.durations(mono_start)
+
+      measurements =
         %{
           time: DateTime.utc_now(),
-          duration: Instrumenter.duration(mono_start),
           bytes_sent: byte_size(body),
           bytes_received: byte_size(Map.get(response, :body, ""))
-        },
+        }
+        |> Map.merge(durations)
+
+      Instrumenter.execute(
+        :rest,
+        measurements,
         %{
           node: Node.self(),
           path: request.path,

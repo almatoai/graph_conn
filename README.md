@@ -18,14 +18,17 @@ end
 ## Telemetry
 
 Sends telemetry events:
-* `[:graph_conn, :ws_upgrade], %{time, duration}, %{node, success}`
+* `[:graph_conn, :ws_upgrade], %{time, duration, duration_native}, %{node, success}`
 * `[:graph_conn, :ws_down], %{time}, %{node}`
 * `[:graph_conn, :ws_lost_connection], %{time}, %{node}`
-* `[:graph_conn, :ws_sent_bytes], %{time, duration, bytes}, %{node}`
+* `[:graph_conn, :ws_sent_bytes], %{time, duration, duration_native, bytes}, %{node}`
 * `[:graph_conn, :ws_received_bytes], %{time, bytes}, %{node}`
-* `[:graph_conn, :rest], %{time, duration, bytes_sent, bytes_received}, %{node, path, method, status_code}`
+* `[:graph_conn, :rest], %{time, duration, duration_native, bytes_sent, bytes_received}, %{node, path, method, status_code}`
 
-`time` is in UTC, `success` is boolean, `duration` is in ms, `bytes` is number of bytes sent or recieved.
+`time` is in UTC, `success` is boolean, `duration` is in ms, `bytes` is number of bytes sent or
+received. `duration_native` is the same interval in the VM's native time unit, for a consumer that
+needs finer resolution than a millisecond -- convert it with `System.convert_time_unit/3`. A local
+call such as a WebSocket send usually takes under a millisecond, so `duration` reads `0` for it.
 
 ## Test
 
