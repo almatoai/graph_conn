@@ -27,8 +27,8 @@ Sends telemetry events:
 
 `time` is in UTC, `success` is boolean, `duration` is in ms, `bytes` is number of bytes sent or
 received. `duration_native` is the same interval in the VM's native time unit, for a consumer that
-needs finer resolution than a millisecond -- convert it with `System.convert_time_unit/3`. A local
-call such as a WebSocket send usually takes under a millisecond, so `duration` reads `0` for it.
+needs finer resolution than a millisecond -- convert it with `System.convert_time_unit/3`. An
+interval under a millisecond is reported as `0` by `duration`.
 
 ## Test
 
