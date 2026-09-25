@@ -12,8 +12,6 @@ First release that supports running behind a rate-limiting WebSocket gateway.
 - `GraphConn.Mock.put_token_lifetime/2` sets the lifetime the mock server issues for a given token,
   so a suite can exercise a short-lived or already-expired one. Scoped to a single token, since
   several clients share the mock; unset, every token lives ten minutes as before.
-- `GraphConn.ActionApi.Invoker.State` no longer carries `ws_status`. It was written once and never
-  read, and every WebSocket status change after the first was logged as unhandled.
 - Every timed telemetry event carries `duration_native` alongside `duration`: the same interval in
   the VM's native time unit, for a consumer that needs finer resolution than a millisecond. A
   WebSocket send usually takes under one, so `duration` reads `0` for it. `duration` is unchanged.
@@ -68,6 +66,10 @@ First release that supports running behind a rate-limiting WebSocket gateway.
   passed. Only a `429` reports as rate limited; an action invoker reports any other unsendable
   request as `{:error, request_id, {:not_sent, reason}}`, also added to
   `ActionApi.execution_error()`.
+- BREAKING: `GraphConn.ActionApi.Invoker.State` no longer carries `ws_status`, so a consumer
+  matching `%InvokerState{ws_status: _}` or building the struct with that key no longer compiles.
+  It was written once and never read, and every WebSocket status change after the first was logged
+  as unhandled.
 - BREAKING: a request against a WebSocket API whose connection is down now returns
   `{:error, :ws_connection_down}` rather than blocking until the connection came back and then
   succeeding. A reopen already on the clock is waited out first, so an ordinary drop does not fail
