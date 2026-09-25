@@ -1044,27 +1044,34 @@ defmodule GraphConn.ConnectionManagerTest do
       _open_action_ws()
 
       # A socket that is accepted and dropped straight back has not proved anything, so the curve
-      # it came back on is the one the next reopen continues from.
-      delays = Enum.map(1..3, fn _cycle -> _close_and_measure_reopen() end)
+      # it came back on is the one the next reopen continues from. Read the curve rather than the
+      # time left until the reopen: the latter is how much of the delay has not elapsed yet, which
+      # depends on how fast the test got there and goes negative once the reopen has fired.
+      curves = Enum.map(1..3, fn _cycle -> _close_and_read_curve() end)
 
-      assert [first, _second, third] = delays
-      assert third > first * 2
+      assert [200, 400, 800] == curves
     end
 
     test "returns the curve to its seed once a socket has stayed up long enough" do
       _put_env(:retry_initial_ms, 100)
-      _put_env(:stability_window_ms, 200)
+      # Wide enough that the test's own wall clock between cycles cannot be mistaken for a socket
+      # proving itself -- with a short window a slow cycle resets the curve and the escalation
+      # below never happens.
+      _put_env(:stability_window_ms, 60_000)
       _open_action_ws()
 
       # Two accept-then-close cycles put the curve past its seed. The curve is the doubling
       # itself, with no jitter on it, so these are exact rather than bands that can overlap.
-      Enum.each(1..2, fn _cycle -> _close_and_measure_reopen() end)
+      Enum.each(1..2, fn _cycle -> _close_and_read_curve() end)
       assert 400 == _reopen_curve(:"action-ws")
 
       _await_conn_pid(:"action-ws", System.monotonic_time(:millisecond) + 25_000)
+
+      # Only now does staying up mean anything, and the sleep clears the window deliberately.
+      _put_env(:stability_window_ms, 200)
       Process.sleep(400)
 
-      _close_and_measure_reopen()
+      _close_and_read_curve()
 
       assert 200 == _reopen_curve(:"action-ws")
     end
@@ -1074,7 +1081,7 @@ defmodule GraphConn.ConnectionManagerTest do
       _put_env(:stability_window_ms, 200)
       _open_action_ws()
 
-      _close_and_measure_reopen()
+      _close_and_read_curve()
       _await_conn_pid(:"action-ws", System.monotonic_time(:millisecond) + 25_000)
       Process.sleep(400)
 
@@ -1084,7 +1091,7 @@ defmodule GraphConn.ConnectionManagerTest do
       GraphConn.open_ws_connection(TestConn, :"action-ws")
       assert :ready = GenServer.call(_manager_pid(), :status)
 
-      _close_and_measure_reopen()
+      _close_and_read_curve()
 
       assert 200 == _reopen_curve(:"action-ws")
     end
@@ -1096,13 +1103,13 @@ defmodule GraphConn.ConnectionManagerTest do
 
       # The window is three times the ceiling, so 1_200ms here. Two cycles first, to put the
       # curve at the ceiling where carrying and starting over give different numbers.
-      Enum.each(1..2, fn _cycle -> _close_and_measure_reopen() end)
+      Enum.each(1..2, fn _cycle -> _close_and_read_curve() end)
       assert 400 == _reopen_curve(:"action-ws")
 
       _await_conn_pid(:"action-ws", System.monotonic_time(:millisecond) + 25_000)
       Process.sleep(1_400)
 
-      _close_and_measure_reopen()
+      _close_and_read_curve()
 
       assert 200 == _reopen_curve(:"action-ws")
     end
@@ -1143,15 +1150,14 @@ defmodule GraphConn.ConnectionManagerTest do
     end
   end
 
-  # Drops the socket and reports how long the reopen it schedules is paced for.
-  defp _close_and_measure_reopen do
+  # Drops the socket and reports the curve the reopen it schedules was placed on. The curve is the
+  # doubling itself, carrying no jitter and no wall clock, so it is exact.
+  defp _close_and_read_curve do
     _await_registered_sockets("invoker", 1, System.monotonic_time(:millisecond) + 25_000)
     Mock.close_ws_connection("invoker", 1011, "go away for now")
     _await_conn_pid_cleared(:"action-ws", System.monotonic_time(:millisecond) + 15_000)
 
-    [{_key, due_at}] = :ets.lookup(TestConn, {:"action-ws", :reopen_due_at})
-
-    due_at - System.monotonic_time(:millisecond)
+    _reopen_curve(:"action-ws")
   end
 
   defp _reopen_curve(api) do
