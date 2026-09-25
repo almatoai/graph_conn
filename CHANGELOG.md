@@ -1,86 +1,51 @@
-# 1.10.0
+# Changelog
+
+⚠️ **Breaking changes** in [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
+
+# 1.10.0 <a id="1100"></a>
 
 First release that supports running behind a rate-limiting WebSocket gateway.
 
+## Breaking
+
+- `GraphConn.ActionApi.Invoker.State` no longer carries `ws_status`.
+- A request against a WebSocket API whose connection is down returns `{:error,
+  :ws_connection_down}` instead of blocking until it comes back. A reopen already scheduled is
+  waited out first, up to `:retry_max_ms + :startup_wait_ms` (10.5s on the defaults).
+
 ## Enhancement
 
-- Retries on authentication, API-version discovery and WebSocket upgrade wait for the
-  `retry-after` seconds a 429 advertises, on a capped and jittered curve. Tunable via
-  `:retry_initial_ms` (1_000), `:retry_max_ms` (10_000), `:retry_jitter_ms` (1_000) and
-  `:retry_floor_max_ms` (300_000, the sanity ceiling on an advertised wait).
-- A refused WebSocket upgrade no longer restarts the client's supervision subtree.
-- `GraphConn.Mock.put_token_lifetime/2` sets the lifetime the mock server issues for a given token,
-  so a suite can exercise a short-lived or already-expired one. Scoped to a single token, since
-  several clients share the mock; unset, every token lives ten minutes as before.
-- Every timed telemetry event carries `duration_native` alongside `duration`: the same interval in
-  the VM's native time unit, for a consumer that needs finer resolution than a millisecond. A
-  WebSocket send usually takes under one, so `duration` reads `0` for it. `duration` is unchanged.
-- `status/1` takes a timeout. The manager answering it shares a mailbox with token refreshes, so
-  it can be busy for as long as one takes; without this the wait was fixed at five seconds and
-  overrunning it exited the calling process.
-- The access token is now refreshed before it expires rather than at the instant it does, so a
-  connection opened near expiry no longer carries a dead token. Tunable via
-  `:token_refresh_ratio` (0.95 of the token's lifetime), with a floor of three times
-  `:retry_max_ms` so a short-lived token keeps a margin wide enough to outlast a run of denials.
+- Authentication, API-version discovery and WebSocket upgrade honour a `429`'s `retry-after` on a
+  capped, jittered curve: `:retry_initial_ms` (1_000), `:retry_max_ms` (10_000),
+  `:retry_jitter_ms` (1_000), `:retry_floor_max_ms` (300_000).
+- The access token refreshes before it expires: `:token_refresh_ratio` (0.95), floored at three
+  times `:retry_max_ms`.
+- `status/1` takes a timeout.
+- Timed telemetry events carry `duration_native` alongside `duration`, for resolution finer than a
+  millisecond.
+- `GraphConn.Mock.put_token_lifetime/2` sets the lifetime the mock issues for one token.
 
 ## Fix
 
-- A socket that is accepted and dropped straight back continues the backoff curve instead of
-  restarting it, so accept-then-close cycles escalate rather than pacing flat at the first step
-  forever. A connection that stays up for `:stability_window_ms` -- three times `:retry_max_ms`,
-  30s on the defaults -- starts the curve over.
-- An in-band rate-limit denial on the action-ws socket is answered to the caller that sent the
-  request, as `{:error, request_id, {:rate_limited, retry_after_ms}}`, instead of timing out and
-  resending into the same limiter. A denial carrying no request id belongs to no caller and is
-  logged rather than answered. An advertised wait that is not a positive integer reads as `0`,
-  "back off on your own curve", and one past a day is capped.
-- An `events-ws` status change other than `:ready` no longer raises in a consumer's
-  `on_status_change/3`. The callback had no catch-all, so every drop, refusal or reopen was a
-  `FunctionClauseError` inside `ConnectionManager` and took the client's subtree down with it.
-- A WebSocket connection the Graph closes with `1008` is no longer reopened on the backoff curve.
-  Reconnecting with a token the Graph just refused can only be refused again; the close reaches
-  `on_status_change/3` as `{:disconnected, {:rejected_by_server, message}}`, and the connection is
-  reopened once a new token arrives.
-- A token refresh the Graph rejects now answers the caller with `{:error, :wrong_credentials}`
-  instead of crashing the connection manager and, under `:one_for_all`, the client with it.
-- Retrying a `401` no longer exits the caller when authentication runs longer than five seconds.
-  The wait now follows the configured `:auth` timeout it is waiting on.
-- An authentication response the client cannot use -- an `expires-at` that is not a timestamp, or
-  a `200` carrying no token, an error object or a body that is not JSON at all -- is refused at the
-  boundary, named in the log and paced on the retry curve, instead of raising inside the connection
-  manager and taking the client's subtree with it. An `expires-at` written with a decimal point is read as the instant it names, and a
-  refresh is never scheduled more than a day out, so an expiry given in microseconds cannot raise
-  either -- and it is warned about, as an already-expired one already was. A timestamp merely in the wrong unit downward, or genuinely in the past, stays the
-  refresh curve's problem.
-- A token whose `expires-at` has already passed no longer takes the client down. It is kept and the
-  client stays `:ready` — the clock may be ours, not the Graph's — and the refresh is scheduled on
-  the retry curve with a warning naming the likely cause, rather than immediately.
+- A refused WebSocket upgrade no longer restarts the client's supervision subtree.
+- An `events-ws` status change other than `:ready` no longer raises in `on_status_change/3`.
+- A rejected token refresh, an `expires-at` that is not a timestamp, and a `200` carrying no usable
+  token are all refused and retried rather than taking the client down.
+- Retrying a `401` no longer exits the caller when authentication runs past five seconds.
+- Accept-then-close cycles escalate the backoff curve instead of pacing flat. A connection up for
+  `:stability_window_ms` (three times `:retry_max_ms`) starts it over.
+- A `1008` close is not reopened on the curve; the connection reopens once a new token arrives.
 
 ## Change
 
-- A request that cannot go out because the Graph answered a `429` now comes back as an error
-  rather than blocking or raising: `GraphConn.execute/3` against a WebSocket API returns
-  `{:error, {:rate_limited, retry_after_ms}}`, and an action invoker's `execute/5` returns
-  `{:error, request_id, {:rate_limited, retry_after_ms}}`, which is added to
-  `ActionApi.execution_error()`. `retry_after_ms` is how long to wait, `0` once the window has
-  passed. Only a `429` reports as rate limited; an action invoker reports any other unsendable
-  request as `{:error, request_id, {:not_sent, reason}}`, also added to
-  `ActionApi.execution_error()`.
-- BREAKING: `GraphConn.ActionApi.Invoker.State` no longer carries `ws_status`, so a consumer
-  matching `%InvokerState{ws_status: _}` or building the struct with that key no longer compiles.
-  It was written once and never read, and every WebSocket status change after the first was logged
-  as unhandled.
-- BREAKING: a request against a WebSocket API whose connection is down now returns
-  `{:error, :ws_connection_down}` rather than blocking until the connection came back and then
-  succeeding. A reopen already on the clock is waited out first, so an ordinary drop does not fail
-  the requests made during it; the caller blocks for at most `:retry_max_ms + :startup_wait_ms`,
-  10.5s on the defaults, which is what a consumer's own request timeout has to accommodate.
-- Depends on the published `gun ~> 2.1` instead of a fork of it. Connecting to the Graph through a
-  client's HTTP proxy is unchanged.
-- A WebSocket connection that drops is now reopened on the backoff curve rather than immediately,
-  so the first reconnect after a drop waits between one and two times `:retry_initial_ms` instead
-  of no time at all. A request made during that window waits the reopen out and is resent once the
-  connection is back.
+- Depends on the published `gun ~> 2.1` instead of a fork of it.
+- A `429` comes back as an error rather than blocking: `{:error, {:rate_limited, retry_after_ms}}`
+  from `GraphConn.execute/3`, `{:error, request_id, {:rate_limited, retry_after_ms}}` from an
+  invoker's `execute/5`. Any other unsendable request is `{:error, request_id, {:not_sent,
+  reason}}`. Both are added to `ActionApi.execution_error()`.
+- An in-band `429` on the action-ws socket answers the waiting caller instead of resending.
+- A dropped WebSocket connection is reopened on the backoff curve rather than immediately.
+- A `1008` close reaches `on_status_change/3` as `{:disconnected, {:rejected_by_server, message}}`.
 
 # 1.9.13
 
@@ -175,7 +140,7 @@ First release that supports running behind a rate-limiting WebSocket gateway.
 - Use elixir 1.18.1 and otp 27.2
 - Update all deps to their latest versions
 
-# 1.9.2
+# 1.9.2 <a id="192"></a>
 
 ## Bug fix
 
@@ -195,7 +160,7 @@ First release that supports running behind a rate-limiting WebSocket gateway.
 
 - Allow `config :graph_conn, ca_cert: "/absolute/path/to/my_cert.crt"` to be set
 
-# 1.9.0
+# 1.9.0 <a id="190"></a>
 
 ## Enhancements
 
@@ -236,7 +201,7 @@ First release that supports running behind a rate-limiting WebSocket gateway.
 
 - remove `murmur` and clean unused dependencies
 
-# 1.7.0
+# 1.7.0 <a id="170"></a>
 
 ## Enhancements
 
