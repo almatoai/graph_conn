@@ -1098,15 +1098,20 @@ defmodule GraphConn.ConnectionManagerTest do
 
     test "measures stability against the backoff ceiling rather than a fixed window" do
       _put_env(:retry_initial_ms, 100)
-      _put_env(:retry_max_ms, 400)
+      # A ceiling high enough that the window cannot be reached during the cycles: they would
+      # otherwise reset the curve they are meant to escalate if one of them ran slowly.
+      _put_env(:retry_max_ms, 100_000)
       _open_action_ws()
 
-      # The window is three times the ceiling, so 1_200ms here. Two cycles first, to put the
-      # curve at the ceiling where carrying and starting over give different numbers.
+      # Two cycles first, to put the curve where carrying and starting over give different
+      # numbers.
       Enum.each(1..2, fn _cycle -> _close_and_read_curve() end)
       assert 400 == _reopen_curve(:"action-ws")
 
       _await_conn_pid(:"action-ws", System.monotonic_time(:millisecond) + 25_000)
+
+      # Only now does the ceiling matter: 400 makes the window 1_200ms, which the sleep clears.
+      _put_env(:retry_max_ms, 400)
       Process.sleep(1_400)
 
       _close_and_read_curve()
