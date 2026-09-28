@@ -1,6 +1,31 @@
 defmodule GraphConn.MixProject do
   use Mix.Project
 
+  # Advisories waived for `hex.audit` (Hex/OSV ids). `@ignored_advisories` below is the
+  # separate list `deps.audit` reads; an id in the wrong list is silently ignored.
+  #
+  # cowlib 2.20.0 is its latest release; neither flaw has a patched version.
+  #   EEF-CVE-2026-43966 — cow_http_struct_hd:escape_string/2 serialises outgoing headers; gun
+  #   never calls it and cowboy here serves only the test mock server
+  #   EEF-CVE-2026-43969 — cow_cookie:cookie/1 is reached only via gun's cookie_store, never set
+  #
+  # mint is locked at 1.10.1: 1.11.0 pools a connection after a receive timeout and the next
+  # request on it crashes on the stale reply. mint's only user is the HTTP/1 Finch pool.
+  #   EEF-CVE-2026-91043 — HTTP/2 only
+  #   EEF-CVE-2026-92103 — HTTP/2 only
+  #   EEF-CVE-2026-94194 — HTTP/1 chunked response smuggling: in reach, risk accepted (needs a
+  #   hostile graph or intermediary, including the configured proxy)
+  #
+  # GHSA-w4f7-4cxr-rv3c — self-inconsistent for gun, see `@ignored_advisories` below
+  @ignored_hex_advisories [
+    "EEF-CVE-2026-43966",
+    "EEF-CVE-2026-43969",
+    "EEF-CVE-2026-91043",
+    "EEF-CVE-2026-92103",
+    "EEF-CVE-2026-94194",
+    "GHSA-w4f7-4cxr-rv3c"
+  ]
+
   @spec project() :: keyword()
   def project do
     [
@@ -28,6 +53,7 @@ defmodule GraphConn.MixProject do
       docs: _docs(),
       deps: _deps(),
       aliases: _aliases(),
+      hex: [ignore_advisories: @ignored_hex_advisories],
       elixirc_paths: _elixirc_paths(Mix.env())
     ]
   end
@@ -85,9 +111,9 @@ defmodule GraphConn.MixProject do
   end
 
   # Ignored advisories.
-  #   GHSA-w4f7-4cxr-rv3c — the flaw is in cowlib, patched in 2.16.0, and we resolve 2.20.0. The
-  #   advisory carries one version range per affected package and mix_audit matches cowboy's
-  #   against gun, so gun 2.6.0 trips a range it is not in (gun's own is `< 2.4.0`).
+  #   GHSA-w4f7-4cxr-rv3c — self-inconsistent for gun: affected `< 2.4.0`, yet "patched" in
+  #   2.16.0, which is cowboy's fix and no gun version, so OSV and mix_audit flag gun 2.6.0.
+  #   The real flaw is in cowlib, waived as EEF-CVE-2026-43966 in `@ignored_hex_advisories`.
   @ignored_advisories "GHSA-w4f7-4cxr-rv3c"
 
   # `bless` is an alias (not a Mix.Task module) so the opinionated checks below
@@ -101,6 +127,7 @@ defmodule GraphConn.MixProject do
         "credo --strict",
         "sobelow --exit low",
         "deps.audit --ignore-advisory-ids #{@ignored_advisories}",
+        "cmd mix hex.audit",
         "docs",
         "cmd mix coveralls.html --exclude feature",
         "cmd mix test --only feature",
