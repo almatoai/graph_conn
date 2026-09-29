@@ -2,9 +2,8 @@ defmodule GraphConn.Backoff do
   @moduledoc """
   Pure retry-delay arithmetic: a capped doubling curve, jittered, with an optional floor.
 
-  `next/2` and `jitter/1` define the curve the same way `ws-proxy` does, so the two repos
-  back off identically. Config resolution and logging belong to the caller — nothing here
-  reads application env.
+  `next/2` and `jitter/1` define the curve. Config resolution and logging belong to the
+  caller — nothing here reads application env.
   """
 
   @doc "Doubles `current`, never going past `cap`."

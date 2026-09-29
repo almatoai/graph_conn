@@ -297,7 +297,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       |> Plug.Conn.send_resp(200, Jason.encode!(body))
     end
 
-    # Mirrors hiro-rate-limiter's reply: whole-second `retry-after` plus a JSON body.
+    # Mirrors a rate-limiting gateway's reply: whole-second `retry-after` plus a JSON body.
     defp _rate_limited(conn, retry_after_seconds) do
       body = %{
         "error" => %{
