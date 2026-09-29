@@ -3,7 +3,7 @@ defmodule GraphConn.Test.ProxyFixture do
   The squid instance the proxy tests connect through, started by `docker-compose.test.yaml`.
   """
 
-  # 3128 on the host is taken by the actionhandler test fixture.
+  # 3128 on the host is often taken by another local squid fixture.
   @port 3129
   @probe_timeout_in_ms 500
 

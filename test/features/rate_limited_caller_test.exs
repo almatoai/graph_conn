@@ -36,8 +36,8 @@ defmodule GraphConn.Features.RateLimitedCallerTest do
         ActionInvoker.execute("ExecuteCommand", %{"command" => "ls", "host" => "localhost"})
 
       # Then it is told which request failed and why. The request id is the load-bearing part:
-      # without it a consumer cannot tell which of its in-flight calls was refused, and engine
-      # drops the reply into its "unknown" bucket.
+      # without it a consumer cannot tell which of its in-flight calls was refused, and one that
+      # routes replies by id has nowhere to put it.
       assert {:error, request_id, {:rate_limited, retry_after_ms}} = result
       assert is_binary(request_id)
 
