@@ -2,6 +2,13 @@
 
 ⚠️ **Breaking changes** in [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
 
+# Unreleased
+
+## Breaking
+
+- `plug_cowboy` is an optional dependency. `GraphConn.Test.MockServer` and its router and sockets
+  compile only when the consumer declares `plug_cowboy` itself.
+
 # 1.10.0 <a id="1100"></a>
 
 First release that supports running behind a rate-limiting WebSocket gateway.
