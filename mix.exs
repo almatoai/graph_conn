@@ -90,6 +90,8 @@ defmodule GraphConn.MixProject do
       {:jason, "~> 1.1"},
       ## needed for action handlers only
       {:cachex, "~> 4.0", optional: true},
+      ## needed for GraphConn.Test.MockServer only
+      {:plug_cowboy, "~> 2.1", optional: true},
       {:telemetry, "~> 0.4 or ~> 1.0"},
 
       # test dependencies
@@ -99,8 +101,7 @@ defmodule GraphConn.MixProject do
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
-      {:excoveralls, "~> 0.12", only: [:dev, :test], runtime: false},
-      {:plug_cowboy, "~> 2.1"}
+      {:excoveralls, "~> 0.12", only: [:dev, :test], runtime: false}
     ]
   end
 
