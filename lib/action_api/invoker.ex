@@ -357,6 +357,12 @@ defmodule GraphConn.ActionApi.Invoker do
 
       IMPORTANT! If "timeout" is provided in params it MUST be in seconds (since
       defaults are in seconds).
+
+      Until the request is acked it is sent up to #{@number_of_request_retries} times, `:ack_timeout`
+      apart, and each send can first wait out a WebSocket reopen of up to
+      `:retry_max_ms + :startup_wait_ms`. Against a server that accepts the socket and then closes
+      it, that phase alone can take #{@number_of_request_retries} times their sum before
+      `{:ack_timeout, _}`, and a missed response repeats it once as a last call.
       """
       @spec execute(
               ticket_id :: String.t(),
