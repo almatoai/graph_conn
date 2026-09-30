@@ -2,6 +2,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
   defmodule GraphConn.Test.EventsMockSocket do
     @moduledoc false
 
+    alias GraphConn.Test.MockSocket
     require Logger
 
     @behaviour :cowboy_websocket
@@ -12,13 +13,16 @@ if Code.ensure_loaded?(Plug.Cowboy) do
           %{headers: %{"sec-websocket-protocol" => "6.1, token-events_" <> client_type}} = request,
           _state
         ) do
-      state = %{registry_key: "events_" <> client_type}
+      state = %{registry_key: "events_" <> client_type, upgrade_token: "events_" <> client_type}
 
       {:cowboy_websocket, request, state}
     end
 
     def init(request, _state) do
-      state = %{registry_key: request.path}
+      state = %{
+        registry_key: request.path,
+        upgrade_token: MockSocket.upgrade_token(request)
+      }
 
       {:cowboy_websocket, request, state}
     end
@@ -53,6 +57,9 @@ if Code.ensure_loaded?(Plug.Cowboy) do
 
     defp _respond(%{type: "subscribe", id: _scope_id}, _state),
       do: :ok
+
+    defp _respond(%{type: "token", args: %{_TOKEN: token}}, state),
+      do: GraphConn.Mock.put_token_update(:"events-ws", state.upgrade_token, token)
 
     defp _respond(msg, state) do
       response =

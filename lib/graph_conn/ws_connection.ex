@@ -21,11 +21,13 @@ defmodule GraphConn.WsConnection do
             conn_pid: nil | pid(),
             tunnel_ref: nil | reference(),
             stream_ref: nil | reference(),
-            client_hello: nil | map()
+            client_hello: nil | map(),
+            token_requests: %{(request_id :: String.t()) => true}
           }
 
     @enforce_keys ~w(base_name api internal_state status last_pong ws_ping)a
-    defstruct @enforce_keys ++ ~w(conn_pid tunnel_ref stream_ref client_hello)a
+    defstruct @enforce_keys ++
+                ~w(conn_pid tunnel_ref stream_ref client_hello)a ++ [token_requests: %{}]
   end
 
   defp _name(base_name, api) do
@@ -64,6 +66,11 @@ defmodule GraphConn.WsConnection do
   @spec execute(server :: GenServer.server(), Request.t()) :: :ok
   def execute(server, %Request{} = request),
     do: GenServer.cast(server, {:execute, request})
+
+  @doc false
+  @spec update_token(server :: GenServer.server(), token :: String.t()) :: :ok
+  def update_token(server, token),
+    do: GenServer.cast(server, {:update_token, token})
 
   @impl GenServer
   def init({base_name, api, config, internal_state, version, token}) do
@@ -121,6 +128,19 @@ defmodule GraphConn.WsConnection do
     end)
 
     {:noreply, state}
+  end
+
+  def handle_cast({:update_token, token}, %State{} = state) do
+    request_id = UUID.uuid4()
+    Logger.info("[WsConnection] Sending #{state.api} the refreshed token")
+
+    WS.push(
+      state.conn_pid,
+      state.stream_ref,
+      Jason.encode!(_token_frame(state.api, token, request_id))
+    )
+
+    {:noreply, _await_token_answer(state, request_id)}
   end
 
   @impl GenServer
@@ -230,6 +250,11 @@ defmodule GraphConn.WsConnection do
     {:noreply, state}
   end
 
+  def handle_info({:token_answered, request_id, answer}, %State{} = state) do
+    _log_token_answer(state.api, answer)
+    {:noreply, %State{state | token_requests: Map.delete(state.token_requests, request_id)}}
+  end
+
   def handle_info({:gun_ws, _, _, :close}, %State{} = state) do
     {:stop, "server sent close request", state}
   end
@@ -259,8 +284,31 @@ defmodule GraphConn.WsConnection do
     send(ws_connection, {:hello, msg})
   end
 
+  defp _handle_message(%{"id" => request_id} = answer, %State{} = state, ws_connection)
+       when is_map_key(state.token_requests, request_id),
+       do: send(ws_connection, {:token_answered, request_id, answer})
+
   defp _handle_message(%{} = msg, state, _ws_connection),
     do: apply(state.base_name, :handle_message, [state.api, msg, state.internal_state])
+
+  defp _token_frame(:"events-ws", token, _request_id),
+    do: %{type: "token", args: %{_TOKEN: token}}
+
+  defp _token_frame(:"graph-ws", token, request_id),
+    do: %{id: request_id, type: "token", _TOKEN: token}
+
+  # Only graph-ws answers, so only its request is held until the answer is dropped.
+  defp _await_token_answer(%State{api: :"graph-ws"} = state, request_id),
+    do: %State{state | token_requests: Map.put(state.token_requests, request_id, true)}
+
+  defp _await_token_answer(%State{} = state, _request_id),
+    do: state
+
+  defp _log_token_answer(api, %{"body" => "ok"}),
+    do: Logger.info("[WsConnection] #{api} took the refreshed token")
+
+  defp _log_token_answer(api, answer),
+    do: Logger.warning("[WsConnection] #{api} refused the refreshed token: #{inspect(answer)}")
 
   defp _advertised_max_frame_bytes(%{"max_frame_bytes" => max_frame_bytes})
        when is_integer(max_frame_bytes) and max_frame_bytes > 0,

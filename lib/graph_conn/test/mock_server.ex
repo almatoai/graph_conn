@@ -169,6 +169,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
          [
            {"/api/0.9/action-ws/[...]", Test.MockSocket, []},
            {"/api/6.1/events-ws/[...]", Test.EventsMockSocket, []},
+           {"/api/6.1/graph-ws/[...]", Test.GraphMockSocket, []},
            {:_, Plug.Cowboy.Handler, {Test.MockRouter, []}}
          ]}
       ]

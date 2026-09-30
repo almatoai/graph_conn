@@ -18,9 +18,29 @@ if Code.ensure_loaded?(Plug.Cowboy) do
           _reject(request, state, status, retry_after_seconds)
 
         :error ->
+          request
+          |> _client_type()
+          |> GraphConn.Mock.ws_upgrade_delay()
+          |> Process.sleep()
+
           _upgrade(request, state)
       end
     end
+
+    @doc false
+    @spec upgrade_token(request :: map()) :: String.t() | nil
+    def upgrade_token(%{headers: %{"sec-websocket-protocol" => protocols}}) do
+      protocols
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.find_value(fn
+        "token-" <> token -> token
+        _other_protocol -> nil
+      end)
+    end
+
+    def upgrade_token(_request),
+      do: nil
 
     # The standalone invoker plays the invoker role for message routing -- the dispatch clauses
     # below key off that -- but keeps its own identity for arming, so the two can be denied apart.
@@ -34,7 +54,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
     defp _client_type(%{
            headers: %{"sec-websocket-protocol" => "0.9, token-action_" <> client_type}
          }),
-         do: client_type
+         do: GraphConn.Mock.base_token(client_type)
 
     defp _client_type(request),
       do: request.path
@@ -63,16 +83,23 @@ if Code.ensure_loaded?(Plug.Cowboy) do
              request,
            _state
          ) do
+      client_type = GraphConn.Mock.base_token(client_type)
+
       state = %{
         registry_key: "action_" <> _registry_role(client_type),
-        client_type: client_type
+        client_type: client_type,
+        upgrade_token: upgrade_token(request)
       }
 
       {:cowboy_websocket, request, state}
     end
 
     defp _upgrade(request, _state) do
-      state = %{registry_key: request.path, client_type: request.path}
+      state = %{
+        registry_key: request.path,
+        client_type: request.path,
+        upgrade_token: upgrade_token(request)
+      }
 
       {:cowboy_websocket, request, state}
     end
@@ -88,6 +115,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       Registry.TestSockets
       |> Registry.register({:client, state.client_type}, {})
 
+      :ok = GraphConn.Mock.put_ws_upgrade(:"action-ws", state.upgrade_token)
       send(self(), _hello(state.client_type))
       {:ok, state}
     end

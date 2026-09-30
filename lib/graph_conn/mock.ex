@@ -138,6 +138,8 @@ defmodule GraphConn.Mock do
   @ws_upgrade_key :ws_upgrade
   @request_deny_key :request_deny
   @client_hello_key :client_hello
+  @token_update_key :token_update
+  @ws_upgrades_key :ws_upgrades
 
   @doc """
   Arms the mock to answer the next `times` authentication requests carrying `client_id`
@@ -279,6 +281,100 @@ defmodule GraphConn.Mock do
   def put_client_hello(client_type, client_hello) do
     true = :ets.insert(__MODULE__, {{@client_hello_key, client_type}, client_hello})
     :ok
+  end
+
+  @doc false
+  @spec put_token_update(api :: atom(), upgrade_token :: String.t(), token :: String.t()) :: :ok
+  def put_token_update(api, upgrade_token, token) do
+    updates = token_updates(api, upgrade_token)
+    true = :ets.insert(__MODULE__, {{@token_update_key, api, upgrade_token}, updates ++ [token]})
+    :ok
+  end
+
+  @doc """
+  Returns the tokens sent in `token` messages on `api` sockets upgraded with `upgrade_token`,
+  oldest first.
+  """
+  @spec token_updates(api :: atom(), upgrade_token :: String.t()) :: [String.t()]
+  def token_updates(api, upgrade_token) do
+    __MODULE__
+    |> :ets.lookup({@token_update_key, api, upgrade_token})
+    |> case do
+      [{_key, updates}] -> updates
+      [] -> []
+    end
+  end
+
+  @doc """
+  Makes the mock issue a new token on every authentication with `token`'s credentials, so a
+  refreshed token can be told apart from the one it replaces. Each issued token is `token`
+  followed by `.` and a unique suffix, and is accepted wherever `token` is.
+  """
+  @spec rotate_tokens(token :: String.t(), rotate? :: boolean()) :: :ok
+  def rotate_tokens(token, rotate?) when is_binary(token) and is_boolean(rotate?) do
+    :graph_conn
+    |> Application.get_env(:mock_rotating_tokens, %{})
+    |> Map.put(token, rotate?)
+    |> then(&Application.put_env(:graph_conn, :mock_rotating_tokens, &1))
+  end
+
+  @doc false
+  @spec issue_token(token :: String.t()) :: String.t()
+  def issue_token(token) do
+    :graph_conn
+    |> Application.get_env(:mock_rotating_tokens, %{})
+    |> Map.get(token, false)
+    |> case do
+      true -> "#{token}.#{System.unique_integer([:positive, :monotonic])}"
+      false -> token
+    end
+  end
+
+  @doc false
+  @spec base_token(issued_token :: String.t()) :: String.t()
+  def base_token(issued_token) do
+    issued_token
+    |> String.split(".", parts: 2)
+    |> hd()
+  end
+
+  @doc """
+  Makes the mock hold every `action-ws` upgrade from `client_type` for `delay_ms` before it
+  answers, as a slow network path to the Graph would. `0` answers at once.
+  """
+  @spec delay_ws_upgrade(client_type :: String.t(), delay_ms :: non_neg_integer()) :: :ok
+  def delay_ws_upgrade(client_type, delay_ms) when is_integer(delay_ms) and delay_ms >= 0 do
+    :graph_conn
+    |> Application.get_env(:mock_ws_upgrade_delays, %{})
+    |> Map.put(client_type, delay_ms)
+    |> then(&Application.put_env(:graph_conn, :mock_ws_upgrade_delays, &1))
+  end
+
+  @doc false
+  @spec ws_upgrade_delay(client_type :: String.t()) :: non_neg_integer()
+  def ws_upgrade_delay(client_type) do
+    :graph_conn
+    |> Application.get_env(:mock_ws_upgrade_delays, %{})
+    |> Map.get(client_type, 0)
+  end
+
+  @doc false
+  @spec put_ws_upgrade(api :: atom(), upgrade_token :: String.t() | nil) :: :ok
+  def put_ws_upgrade(api, upgrade_token) do
+    upgrades = ws_upgrades(api)
+    true = :ets.insert(__MODULE__, {{@ws_upgrades_key, api}, upgrades ++ [upgrade_token]})
+    :ok
+  end
+
+  @doc "Returns the tokens `api` sockets were upgraded with, oldest first."
+  @spec ws_upgrades(api :: atom()) :: [String.t() | nil]
+  def ws_upgrades(api) do
+    __MODULE__
+    |> :ets.lookup({@ws_upgrades_key, api})
+    |> case do
+      [{_key, upgrades}] -> upgrades
+      [] -> []
+    end
   end
 
   @doc "Returns the last `clientHello` `client_type` sent, or nil when it sent none."

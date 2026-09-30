@@ -18,9 +18,14 @@
   (`1_000_000` when none).
 - An action handler answers a result whose frame exceeds that limit with an `action_status` `59`
   error ("Response was too big (X MB, limit Y MB)") and never sends or resends the oversized frame.
+- Every token refresh re-tokens the open WebSocket connections: `events-ws` and `graph-ws` are sent
+  a `token` message, and `action-ws`, which has none, reconnects with the new token.
 - The mock server sends `hello` on every action-ws connect (with a per-client limit via
   `GraphConn.Mock.put_hello_max_frame_bytes/2`), so a consumer test that expects a silent socket
   now receives it first, and records `clientHello` (`GraphConn.Mock.client_hello/1`).
+- The mock server answers a `token` message on events-ws and graph-ws
+  (`GraphConn.Mock.token_updates/2`), and can rotate tokens (`GraphConn.Mock.rotate_tokens/2`) or
+  delay an upgrade (`GraphConn.Mock.delay_ws_upgrade/2`).
 
 # 1.10.0 <a id="1100"></a>
 
