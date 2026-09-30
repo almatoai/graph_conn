@@ -1,6 +1,9 @@
 defmodule GraphConn.HelloTest do
   use ExUnit.Case, async: false
 
+  alias GraphConn.ActionApi.Responder
+  alias GraphConn.Request
+
   # What the mock's `hello` advertises to the "handler" client, set in config/test.exs.
   @handler_limit 200_000
 
@@ -32,6 +35,23 @@ defmodule GraphConn.HelloTest do
       _reconnect_handler_with_limit(nil)
 
       assert 1_000_000 == GraphConn.max_frame_bytes(TestActionHandler, :"action-ws")
+    end
+  end
+
+  describe "the mock server" do
+    test "accepts a frame above 1 MB when its hello advertises more" do
+      on_exit(fn -> _reconnect_handler_with_limit(@handler_limit) end)
+      _reconnect_handler_with_limit(4_194_304)
+
+      req_id = UUID.uuid4()
+      {:ok, _owner} = Registry.register(Registry.TestSockets, req_id, {})
+      result = Jason.encode!(%{data: String.duplicate("a", 1_500_000)})
+
+      %Request{body: %{id: req_id, type: "sendActionResult", result: result}}
+      |> Responder.return_response(TestActionHandler, 3_000)
+
+      assert_receive frame when is_binary(frame)
+      assert %{"result" => ^result} = Jason.decode!(frame)
     end
   end
 

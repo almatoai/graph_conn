@@ -22,7 +22,8 @@
   a `token` message, and `action-ws`, which has none, reconnects with the new token.
 - The mock server sends `hello` on every action-ws connect (with a per-client limit via
   `GraphConn.Mock.put_hello_max_frame_bytes/2`), so a consumer test that expects a silent socket
-  now receives it first, and records `clientHello` (`GraphConn.Mock.client_hello/1`).
+  now receives it first. It enforces that limit on incoming frames (cowboy's `1_000_000` when none
+  is set), and records `clientHello` (`GraphConn.Mock.client_hello/1`).
 - The mock server answers a `token` message on events-ws and graph-ws
   (`GraphConn.Mock.token_updates/2`), and can rotate tokens (`GraphConn.Mock.rotate_tokens/2`) or
   delay an upgrade (`GraphConn.Mock.delay_ws_upgrade/2`).

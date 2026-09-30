@@ -8,7 +8,9 @@ if Code.ensure_loaded?(Plug.Cowboy) do
 
     @doc false
     @spec init(request :: map(), state :: term()) ::
-            {:cowboy_websocket, map(), map()} | {:ok, map(), term()}
+            {:cowboy_websocket, map(), map()}
+            | {:cowboy_websocket, map(), map(), map()}
+            | {:ok, map(), term()}
     def init(request, state) do
       request
       |> _client_type()
@@ -91,7 +93,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         upgrade_token: upgrade_token(request)
       }
 
-      {:cowboy_websocket, request, state}
+      {:cowboy_websocket, request, state, _websocket_opts(client_type)}
     end
 
     defp _upgrade(request, _state) do
@@ -102,6 +104,16 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       }
 
       {:cowboy_websocket, request, state}
+    end
+
+    # Enforces the limit its hello advertises, as the server does, or cowboy's own 1_000_000.
+    defp _websocket_opts(client_type) do
+      client_type
+      |> GraphConn.Mock.hello_max_frame_bytes()
+      |> case do
+        nil -> %{max_frame_size: 1_000_000}
+        max_frame_bytes -> %{max_frame_size: max_frame_bytes}
+      end
     end
 
     @doc false
