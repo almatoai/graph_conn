@@ -137,6 +137,7 @@ defmodule GraphConn.Mock do
   @versions_key :versions
   @ws_upgrade_key :ws_upgrade
   @request_deny_key :request_deny
+  @submit_drop_key :submit_drop
   @client_hello_key :client_hello
   @token_update_key :token_update
   @ws_upgrades_key :ws_upgrades
@@ -179,7 +180,8 @@ defmodule GraphConn.Mock do
   Scoped to one client on purpose: a blanket reset would disarm whatever a concurrently
   running test had armed for a client of its own.
   """
-  @spec clear_rate_limit(key :: String.t() | :versions | {:ws_upgrade, String.t()}) :: :ok
+  @spec clear_rate_limit(key :: String.t() | :versions | {:ws_upgrade | :submit_drop, String.t()}) ::
+          :ok
   def clear_rate_limit(key) do
     true = :ets.delete(__MODULE__, key)
     :ok
@@ -228,6 +230,19 @@ defmodule GraphConn.Mock do
         ) :: :ok
   def deny_next_request(client_type, times, retry_after_ms),
     do: _arm({@request_deny_key, client_type}, times, retry_after_ms)
+
+  @doc """
+  Arms the mock to ack the next `times` `submitAction`s from `client_type` without handing them to
+  any handler, so the invoker waits out its own timeout.
+  """
+  @spec drop_next_submit(client_type :: String.t(), times :: pos_integer()) :: :ok
+  def drop_next_submit(client_type, times),
+    do: _arm({@submit_drop_key, client_type}, times, :drop)
+
+  @doc false
+  @spec take_submit_drop(client_type :: String.t()) :: {:ok, :drop} | :error
+  def take_submit_drop(client_type),
+    do: _take_rate_limit({@submit_drop_key, client_type})
 
   @doc false
   @spec take_request_denial(client_type :: String.t()) ::

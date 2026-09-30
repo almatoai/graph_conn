@@ -10,6 +10,24 @@ defmodule TestActionHandler do
   def execute(_req_id, "MakeDialyzerPass for `:ok` response", _),
     do: :ok
 
+  def execute(_req_id, "ExecuteCommand", %{"raise" => message}),
+    do: raise(message)
+
+  def execute(_req_id, "ExecuteCommand", %{"exit" => reason}),
+    do: exit(reason)
+
+  def execute(_req_id, "ExecuteCommand", %{"throw" => value}),
+    do: throw(value)
+
+  def execute(_req_id, "ExecuteCommand", %{"crash_linked" => message}) do
+    fn -> raise message end
+    |> Task.async()
+    |> Task.await()
+  end
+
+  def execute(_req_id, "RunScript", %{"hang" => _hang}),
+    do: Process.sleep(:infinity)
+
   def execute(_req_id, "ExecuteCommand", %{"other_handler" => "Echo"} = params),
     do: Echo.execute(params)
 
