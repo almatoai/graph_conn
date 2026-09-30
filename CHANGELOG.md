@@ -16,6 +16,8 @@
   refuses to start the client.
 - `GraphConn.max_frame_bytes/2` returns the frame limit the server's `hello` advertised
   (`1_000_000` when none).
+- An action handler answers a result whose frame exceeds that limit with an `action_status` `59`
+  error ("Response was too big (X MB, limit Y MB)") and never sends or resends the oversized frame.
 - The mock server sends `hello` on every action-ws connect (with a per-client limit via
   `GraphConn.Mock.put_hello_max_frame_bytes/2`), so a consumer test that expects a silent socket
   now receives it first, and records `clientHello` (`GraphConn.Mock.client_hello/1`).

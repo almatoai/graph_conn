@@ -168,7 +168,11 @@ if Code.ensure_loaded?(Cachex) do
             end)
             |> case do
               {:ok, :execute_action} ->
-                response = _execute_action(req_id, capability, params)
+                response =
+                  req_id
+                  |> _execute_action(capability, params)
+                  |> _fit_frame(req_id)
+
                 _set_response(req_id, response)
 
               {:ok, :wait} ->
@@ -235,11 +239,26 @@ if Code.ensure_loaded?(Cachex) do
         defp _respond_with(req_id, response) do
           Logger.info("[ActionHandler] Sending result")
 
-          %GraphConn.Request{
-            body: %{id: req_id, type: "sendActionResult", result: response}
-          }
+          req_id
+          |> _result_request(response)
           |> ActionApi.Responder.return_response(__MODULE__, resend_response_timeout())
         end
+
+        # Fitted before it is cached, so a redelivery answered from the cache never carries a
+        # result the server would close the connection over.
+        defp _fit_frame(response, req_id) do
+          max_frame_bytes = GraphConn.max_frame_bytes(__MODULE__, :"action-ws")
+
+          %GraphConn.Request{body: %{result: fitted}} =
+            req_id
+            |> _result_request(response)
+            |> ActionApi.ResultFrame.fit(max_frame_bytes)
+
+          fitted
+        end
+
+        defp _result_request(req_id, response),
+          do: %GraphConn.Request{body: %{id: req_id, type: "sendActionResult", result: response}}
 
         defp _execute_action(req_id, capability, params) do
           Logger.info("[ActionHandler] Executing #{inspect(capability)}: #{inspect(params)}")
