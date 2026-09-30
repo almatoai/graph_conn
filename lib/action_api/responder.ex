@@ -9,6 +9,7 @@ defmodule GraphConn.ActionApi.Responder do
   """
 
   use GenServer
+  alias GraphConn.ActionApi.ResultFrame
   require Logger
 
   @doc "Returns the registered process name of the responder for `base_name`."
@@ -32,6 +33,8 @@ defmodule GraphConn.ActionApi.Responder do
   @spec return_response(GraphConn.Request.t(), base_name :: atom(), resend_after :: pos_integer()) ::
           term()
   def return_response(%GraphConn.Request{} = response, base_name, resend_after) do
+    response = _fit_frame(response, base_name)
+
     base_name
     |> name()
     |> GenServer.cast({:register_response, response, resend_after})
@@ -91,6 +94,8 @@ defmodule GraphConn.ActionApi.Responder do
     responses =
       if Map.has_key?(state.responses, req_id) do
         {%GraphConn.Request{} = response, _} = Map.get(state.responses, req_id)
+        # A reconnect can land on a server with a smaller limit than the first send saw.
+        response = _fit_frame(response, state.base_name)
 
         ref =
           state.base_name
@@ -105,5 +110,10 @@ defmodule GraphConn.ActionApi.Responder do
       end
 
     {:noreply, %{state | responses: responses}}
+  end
+
+  defp _fit_frame(%GraphConn.Request{} = response, base_name) do
+    max_frame_bytes = GraphConn.max_frame_bytes(base_name, :"action-ws")
+    ResultFrame.fit(response, max_frame_bytes)
   end
 end

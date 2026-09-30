@@ -145,7 +145,8 @@ config :my_app, MyHandler,
 ```
 
 `GraphConn.max_frame_bytes(MyHandler, :"action-ws")` returns the frame limit the server advertised
-in its `hello`, or `1_000_000` when it advertised none.
+in its `hello`, or `1_000_000` when it advertised none. An action handler never sends a result
+frame over that limit: it logs a warning and sends an `action_status` `59` error instead.
 
 ### Invoke call
 
