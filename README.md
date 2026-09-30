@@ -68,6 +68,10 @@ and then run
 INTEGRATION_TESTS=true mix test
 ```
 
+The suite's mock server listens on port 18081, away from the mock server's own default of 8081, so
+it can run alongside a consumer's suite. Set `GRAPH_CONN_TEST_PORT` to move it.
+
+
 ## Usage
 
 ### Define your Conn module

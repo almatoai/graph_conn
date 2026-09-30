@@ -12,7 +12,7 @@ defmodule GraphConn.WSProxyTest do
 
   # squid resolves this to the host running the mock server; see docker-compose.test.yaml.
   @graph_host "host.docker.internal"
-  @graph_port 8081
+  @graph_port Application.compile_env!(:graph_conn, :mock_server_port)
   @path ~c"/api/0.9/action-ws/"
   @subprotocol "0.9"
   # Its own client type, so an arm here cannot deny a client another test is using.

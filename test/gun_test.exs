@@ -14,7 +14,7 @@ defmodule GraphConn.GunTest do
       }
 
       host = ~c"localhost"
-      port = 8081
+      port = Application.fetch_env!(:graph_conn, :mock_server_port)
       path = ~c"/api/0.9/action-ws/"
       assert {:ok, conn_pid} = :gun.open(host, port, connect_opts)
       assert Process.alive?(conn_pid)

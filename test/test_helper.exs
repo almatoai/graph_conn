@@ -24,19 +24,23 @@ ExUnit.start(
 )
 
 unless System.get_env("INTEGRATION_TESTS") == "true" do
+  mock_server = [port: Application.fetch_env!(:graph_conn, :mock_server_port)]
+
   :ok =
     GraphConn.Test.MockServer.inject_local_config(
       {:graph_conn, GraphConn.TestConn},
-      :valid_invoker_credentials
+      :valid_invoker_credentials,
+      mock_server
     )
 
   :ok =
     GraphConn.Test.MockServer.inject_local_config(
       {:graph_conn, GraphConn.Test.ActionHandler},
-      :valid_handler_credentials
+      :valid_handler_credentials,
+      mock_server
     )
 
-  {:ok, _mock_server} = GraphConn.Test.MockServer.start_link()
+  {:ok, _mock_server} = GraphConn.Test.MockServer.start_link(mock_server)
 end
 
 :graph_conn
