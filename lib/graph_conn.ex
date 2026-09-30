@@ -234,11 +234,11 @@ defmodule GraphConn do
     quote do
       @impl GraphConn
       def on_status_change(status, _internal_state),
-        do: Logger.debug("new main connection status: #{status}")
+        do: Logger.debug("new main connection status: #{inspect(status)}")
 
       @impl GraphConn
       def on_status_change(from_api, status, _internal_state),
-        do: Logger.debug("new #{from_api} connection status: #{status}")
+        do: Logger.debug("new #{from_api} connection status: #{inspect(status)}")
 
       @impl GraphConn
       def handle_message(from_api, msg, _internal_state),
