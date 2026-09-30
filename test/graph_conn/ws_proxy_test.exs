@@ -15,6 +15,7 @@ defmodule GraphConn.WSProxyTest do
   @graph_port Application.compile_env!(:graph_conn, :mock_server_port)
   @path ~c"/api/0.9/action-ws/"
   @subprotocol "0.9"
+  @max_frame_bytes 16_777_216
   # Its own client type, so an arm here cannot deny a client another test is using.
   @token "action_proxy"
   # What `ConnectionManager` derives for an `http://` graph url.
@@ -54,7 +55,7 @@ defmodule GraphConn.WSProxyTest do
       {:ok, conn_pid, tunnel_ref} = WS.connect(@graph_host, @graph_port, @connect_opts)
 
       assert {:ok, stream_ref} =
-               WS.ws_upgrade(conn_pid, @path, @subprotocol, @token, tunnel_ref)
+               WS.ws_upgrade(conn_pid, @path, @subprotocol, @token, tunnel_ref, @max_frame_bytes)
 
       # gun names a tunnelled stream by the tunnel it runs in. Upgrading without naming the
       # tunnel leaves a bare reference here, and gun crashes trying to split it.
@@ -64,7 +65,9 @@ defmodule GraphConn.WSProxyTest do
 
     test "carries frames on the tunnelled stream" do
       {:ok, conn_pid, tunnel_ref} = WS.connect(@graph_host, @graph_port, @connect_opts)
-      {:ok, stream_ref} = WS.ws_upgrade(conn_pid, @path, @subprotocol, @token, tunnel_ref)
+
+      {:ok, stream_ref} =
+        WS.ws_upgrade(conn_pid, @path, @subprotocol, @token, tunnel_ref, @max_frame_bytes)
 
       assert :ok == WS.ping(conn_pid, stream_ref)
     end
@@ -75,7 +78,7 @@ defmodule GraphConn.WSProxyTest do
       {:ok, conn_pid, tunnel_ref} = WS.connect(@graph_host, @graph_port, @connect_opts)
 
       assert {:error, {:rate_limited, retry_after_ms}} =
-               WS.ws_upgrade(conn_pid, @path, @subprotocol, @token, tunnel_ref)
+               WS.ws_upgrade(conn_pid, @path, @subprotocol, @token, tunnel_ref, @max_frame_bytes)
 
       assert retry_after_ms > 1_000
     end

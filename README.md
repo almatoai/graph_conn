@@ -144,6 +144,9 @@ config :my_app, MyHandler,
   ]
 ```
 
+A WebSocket client takes incoming frames up to `:ws_max_frame_bytes` (16 MiB by default); a larger
+frame from the server drops the socket.
+
 `GraphConn.max_frame_bytes(MyHandler, :"action-ws")` returns the frame limit the server advertised
 in its `hello`, or `1_000_000` when it advertised none. An action handler never sends a result
 frame over that limit: it logs a warning and sends an `action_status` `59` error instead.

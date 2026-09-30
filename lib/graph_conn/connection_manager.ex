@@ -249,6 +249,7 @@ defmodule GraphConn.ConnectionManager do
   @impl GenServer
   def init({base_name, config}) do
     :ok = ClientHello.validate!(config)
+    :ok = _validate_ws_max_frame_bytes!(config)
     _init_ets(base_name, config)
 
     desired_status =
@@ -987,6 +988,26 @@ defmodule GraphConn.ConnectionManager do
           nil -> {:error, {:unknown_api, Map.keys(versions)}}
           version -> {:ok, version}
         end
+    end
+  end
+
+  # gun only checks the option at upgrade, where a bad value is retried on the backoff curve forever.
+  defp _validate_ws_max_frame_bytes!(config) do
+    config
+    |> Keyword.fetch(:ws_max_frame_bytes)
+    |> case do
+      :error ->
+        :ok
+
+      {:ok, :infinity} ->
+        :ok
+
+      {:ok, max_frame_bytes} when is_integer(max_frame_bytes) and max_frame_bytes > 0 ->
+        :ok
+
+      {:ok, invalid} ->
+        raise ArgumentError,
+              ":ws_max_frame_bytes must be a positive integer or :infinity, got: #{inspect(invalid)}"
     end
   end
 

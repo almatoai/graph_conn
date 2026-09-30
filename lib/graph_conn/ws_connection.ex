@@ -5,6 +5,9 @@ defmodule GraphConn.WsConnection do
   alias GraphConn.{ClientHello, ConnectionManager, Instrumenter, Request, WS}
   require Logger
 
+  # Well above any limit a server advertises for its own inbound frames, which it relays onwards.
+  @default_max_frame_bytes 16_777_216
+
   defmodule State do
     @moduledoc false
 
@@ -90,7 +93,7 @@ defmodule GraphConn.WsConnection do
       |> _connect(config)
 
     state
-    |> _ws_upgrade(path, version.subprotocol, token)
+    |> _ws_upgrade(path, version.subprotocol, token, _max_frame_bytes(config))
     |> case do
       {:ok, %State{} = upgraded} -> {:ok, upgraded}
       {:stop, reason} -> {:stop, reason}
@@ -352,15 +355,18 @@ defmodule GraphConn.WsConnection do
     end
   end
 
+  defp _max_frame_bytes(config),
+    do: Keyword.get(config, :ws_max_frame_bytes, @default_max_frame_bytes)
+
   # `_connect/2` leaves `conn_pid` nil when it could not reach the graph at all.
-  defp _ws_upgrade(%State{conn_pid: nil}, _path, _subprotocol, _token),
+  defp _ws_upgrade(%State{conn_pid: nil}, _path, _subprotocol, _token, _max_frame_bytes),
     do: {:stop, :not_connected}
 
-  defp _ws_upgrade(%State{conn_pid: conn_pid} = state, path, subprotocol, token) do
+  defp _ws_upgrade(%State{conn_pid: conn_pid} = state, path, subprotocol, token, max_frame_bytes) do
     Logger.info("Upgrading connection...")
 
     conn_pid
-    |> WS.ws_upgrade(path, subprotocol, token, state.tunnel_ref)
+    |> WS.ws_upgrade(path, subprotocol, token, state.tunnel_ref, max_frame_bytes)
     |> case do
       {:ok, stream_ref} ->
         {:ok, _upgraded(state, stream_ref)}
