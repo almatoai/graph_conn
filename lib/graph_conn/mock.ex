@@ -137,6 +137,7 @@ defmodule GraphConn.Mock do
   @versions_key :versions
   @ws_upgrade_key :ws_upgrade
   @request_deny_key :request_deny
+  @client_hello_key :client_hello
 
   @doc """
   Arms the mock to answer the next `times` authentication requests carrying `client_id`
@@ -245,6 +246,50 @@ defmodule GraphConn.Mock do
     |> Registry.dispatch({:client, client_type}, fn entries ->
       for {pid, _registration} <- entries, do: send(pid, {:close, code, msg})
     end)
+  end
+
+  @doc "Sets the `max_frame_bytes` the mock's `hello` advertises to `client_type`; nil omits it."
+  @spec put_hello_max_frame_bytes(
+          client_type :: String.t(),
+          max_frame_bytes :: pos_integer() | nil
+        ) ::
+          :ok
+  def put_hello_max_frame_bytes(client_type, max_frame_bytes) do
+    mock = Application.get_env(:graph_conn, :mock, [])
+
+    limits =
+      mock
+      |> Keyword.get(:hello_max_frame_bytes, %{})
+      |> Map.put(client_type, max_frame_bytes)
+
+    Application.put_env(:graph_conn, :mock, Keyword.put(mock, :hello_max_frame_bytes, limits))
+  end
+
+  @doc false
+  @spec hello_max_frame_bytes(client_type :: String.t()) :: pos_integer() | nil
+  def hello_max_frame_bytes(client_type) do
+    :graph_conn
+    |> Application.get_env(:mock, [])
+    |> Keyword.get(:hello_max_frame_bytes, %{})
+    |> Map.get(client_type)
+  end
+
+  @doc false
+  @spec put_client_hello(client_type :: String.t(), client_hello :: map()) :: :ok
+  def put_client_hello(client_type, client_hello) do
+    true = :ets.insert(__MODULE__, {{@client_hello_key, client_type}, client_hello})
+    :ok
+  end
+
+  @doc "Returns the last `clientHello` `client_type` sent, or nil when it sent none."
+  @spec client_hello(client_type :: String.t()) :: map() | nil
+  def client_hello(client_type) do
+    __MODULE__
+    |> :ets.lookup({@client_hello_key, client_type})
+    |> case do
+      [{_key, client_hello}] -> client_hello
+      [] -> nil
+    end
   end
 
   @doc false

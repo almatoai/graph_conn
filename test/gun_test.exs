@@ -23,6 +23,7 @@ defmodule GraphConn.GunTest do
       stream_ref = :gun.ws_upgrade(conn_pid, path, [], %{})
 
       assert_receive {:gun_upgrade, ^conn_pid, ^stream_ref, ["websocket"], _response_headers}
+      assert_receive {:gun_ws, ^conn_pid, ^stream_ref, {:text, ~s({"type":"hello"})}}
       refute_receive _, 2_000
     end
   end

@@ -9,6 +9,17 @@
 - `plug_cowboy` is an optional dependency. `GraphConn.Test.MockServer` and its router and sockets
   compile only when the consumer declares `plug_cowboy` itself.
 
+## Enhancement
+
+- action-ws sends a `clientHello` after the server's `hello`, from the client's `:client_hello`
+  config (`client: [app:, version:]`, `settings: [redelivery:]`). A malformed `:client_hello`
+  refuses to start the client.
+- `GraphConn.max_frame_bytes/2` returns the frame limit the server's `hello` advertised
+  (`1_000_000` when none).
+- The mock server sends `hello` on every action-ws connect (with a per-client limit via
+  `GraphConn.Mock.put_hello_max_frame_bytes/2`), so a consumer test that expects a silent socket
+  now receives it first, and records `clientHello` (`GraphConn.Mock.client_hello/1`).
+
 # 1.10.0 <a id="1100"></a>
 
 First release that supports running behind a rate-limiting WebSocket gateway.

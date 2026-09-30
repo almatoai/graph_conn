@@ -106,4 +106,8 @@ config :graph_conn, :mock,
       }
     }
   },
-  applicabilities: %{"action_handler" => %{}}
+  applicabilities: %{"action_handler" => %{}},
+  hello_max_frame_bytes: %{"handler" => 200_000}
+
+config :graph_conn, GraphConn.Test.ActionHandler,
+  client_hello: [client: [app: "graph-conn-test", version: "0.0.1"]]

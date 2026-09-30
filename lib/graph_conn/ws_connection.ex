@@ -2,7 +2,7 @@ defmodule GraphConn.WsConnection do
   @moduledoc false
 
   use GenServer
-  alias GraphConn.{Instrumenter, Request, WS}
+  alias GraphConn.{ClientHello, ConnectionManager, Instrumenter, Request, WS}
   require Logger
 
   defmodule State do
@@ -20,11 +20,12 @@ defmodule GraphConn.WsConnection do
             ],
             conn_pid: nil | pid(),
             tunnel_ref: nil | reference(),
-            stream_ref: nil | reference()
+            stream_ref: nil | reference(),
+            client_hello: nil | map()
           }
 
     @enforce_keys ~w(base_name api internal_state status last_pong ws_ping)a
-    defstruct @enforce_keys ++ ~w(conn_pid tunnel_ref stream_ref)a
+    defstruct @enforce_keys ++ ~w(conn_pid tunnel_ref stream_ref client_hello)a
   end
 
   defp _name(base_name, api) do
@@ -76,7 +77,8 @@ defmodule GraphConn.WsConnection do
         internal_state: internal_state,
         status: status,
         ws_ping: Keyword.get(config, :ws_ping, _default_ping_config()),
-        last_pong: DateTime.utc_now()
+        last_pong: DateTime.utc_now(),
+        client_hello: _client_hello(api, config)
       }
       |> _connect(config)
 
@@ -87,6 +89,13 @@ defmodule GraphConn.WsConnection do
       {:stop, reason} -> {:stop, reason}
     end
   end
+
+  # Only the action API knows `clientHello`.
+  defp _client_hello(:"action-ws", config),
+    do: ClientHello.frame(config)
+
+  defp _client_hello(_api, _config),
+    do: nil
 
   defp _url_params(config) do
     config
@@ -119,6 +128,8 @@ defmodule GraphConn.WsConnection do
         {:gun_ws, conn_pid, _stream_ref, {:text, text}},
         %State{conn_pid: conn_pid} = state
       ) do
+    ws_connection = self()
+
     spawn(fn ->
       :ok =
         Instrumenter.execute(
@@ -133,7 +144,7 @@ defmodule GraphConn.WsConnection do
         "[WsConnection] Just received text message on #{state.api}:\n#{inspect(msg)}"
       end)
 
-      _handle_message(msg, state)
+      _handle_message(msg, state, ws_connection)
     end)
 
     {:noreply, state}
@@ -211,6 +222,14 @@ defmodule GraphConn.WsConnection do
     {:stop, status, state}
   end
 
+  def handle_info({:hello, hello}, %State{} = state) do
+    max_frame_bytes = _advertised_max_frame_bytes(hello)
+    :ok = ConnectionManager.hello_received(state.base_name, self(), max_frame_bytes)
+    _send_client_hello(state)
+
+    {:noreply, state}
+  end
+
   def handle_info({:gun_ws, _, _, :close}, %State{} = state) do
     {:stop, "server sent close request", state}
   end
@@ -235,12 +254,28 @@ defmodule GraphConn.WsConnection do
     {:noreply, state}
   end
 
-  defp _handle_message(%{"type" => "hello"} = msg, _state) do
+  defp _handle_message(%{"type" => "hello"} = msg, _state, ws_connection) do
     Logger.info("[WsConnection] Received hello message: #{inspect(msg)}")
+    send(ws_connection, {:hello, msg})
   end
 
-  defp _handle_message(%{} = msg, state),
+  defp _handle_message(%{} = msg, state, _ws_connection),
     do: apply(state.base_name, :handle_message, [state.api, msg, state.internal_state])
+
+  defp _advertised_max_frame_bytes(%{"max_frame_bytes" => max_frame_bytes})
+       when is_integer(max_frame_bytes) and max_frame_bytes > 0,
+       do: max_frame_bytes
+
+  defp _advertised_max_frame_bytes(_hello),
+    do: nil
+
+  defp _send_client_hello(%State{client_hello: nil}),
+    do: :ok
+
+  defp _send_client_hello(%State{client_hello: client_hello} = state) do
+    Logger.info("[WsConnection] Sending clientHello: #{inspect(client_hello)}")
+    WS.push(state.conn_pid, state.stream_ref, Jason.encode!(client_hello))
+  end
 
   ## Helper functions
 
