@@ -28,6 +28,12 @@
   (`GraphConn.Mock.token_updates/2`), and can rotate tokens (`GraphConn.Mock.rotate_tokens/2`) or
   delay an upgrade (`GraphConn.Mock.delay_ws_upgrade/2`).
 
+## Fixes
+
+- The default `on_status_change/2` and `on_status_change/3` no longer raise on a tuple status (such
+  as `{:disconnected, _}`) when logging at debug level, which took the client's supervision tree
+  down.
+
 # 1.10.0 <a id="1100"></a>
 
 First release that supports running behind a rate-limiting WebSocket gateway.
