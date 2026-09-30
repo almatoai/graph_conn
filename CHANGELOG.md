@@ -8,6 +8,9 @@
 
 - `plug_cowboy` is an optional dependency. `GraphConn.Test.MockServer` and its router and sockets
   compile only when the consumer declares `plug_cowboy` itself.
+- A WebSocket the server closes with `1000` or `1001` stops as `{:shutdown, "server sent close
+  request: <reason>"}`, which `on_status_change/3` receives in place of the bare string, and no
+  longer logs as a crash.
 
 ## Enhancement
 

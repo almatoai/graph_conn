@@ -266,6 +266,13 @@ defmodule GraphConn.WsConnection do
     {:stop, {:disconnected, {:rejected_by_server, msg}}, state}
   end
 
+  # A normal or going-away close is the server ending the socket on purpose, a rolling restart
+  # say, so it stops as a shutdown rather than as a crash.
+  def handle_info({:gun_ws, _, _, {:close, code, msg}}, %State{} = state)
+      when code in [1000, 1001] do
+    {:stop, {:shutdown, "server sent close request: #{msg}"}, state}
+  end
+
   def handle_info({:gun_ws, _, _, {:close, _code, msg}}, %State{} = state) do
     {:stop, "server sent close request: #{msg}", state}
   end
