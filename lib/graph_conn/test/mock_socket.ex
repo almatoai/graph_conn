@@ -88,7 +88,18 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       Registry.TestSockets
       |> Registry.register({:client, state.client_type}, {})
 
+      send(self(), _hello(state.client_type))
       {:ok, state}
+    end
+
+    defp _hello(client_type) do
+      client_type
+      |> GraphConn.Mock.hello_max_frame_bytes()
+      |> case do
+        nil -> %{type: "hello"}
+        max_frame_bytes -> %{type: "hello", max_frame_bytes: max_frame_bytes}
+      end
+      |> Jason.encode!()
     end
 
     @doc false
@@ -109,6 +120,9 @@ if Code.ensure_loaded?(Plug.Cowboy) do
 
     defp _respond(%{type: "acknowledged", id: _id}, _state),
       do: :ok
+
+    defp _respond(%{type: "clientHello"} = client_hello, state),
+      do: GraphConn.Mock.put_client_hello(state.client_type, client_hello)
 
     defp _respond(%{type: "submitAction", id: id, capability: "nack"}, state) do
       nack =

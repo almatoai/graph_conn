@@ -28,6 +28,7 @@ defmodule GraphConn.ConnectionManager do
 
   alias GraphConn.{
     Backoff,
+    ClientHello,
     ClientState,
     GraphRestCalls,
     Request,
@@ -44,6 +45,8 @@ defmodule GraphConn.ConnectionManager do
   # How long a caller waits for a client to become usable before giving up, and how often it
   # looks while waiting. See `_await_versions/1`.
   @default_startup_wait 500
+  # What a server that advertises no limit in its `hello` is assumed to accept.
+  @default_max_frame_bytes 1_000_000
   @default_status_timeout 5_000
   @default_auth_timeout 60_000
   @refresh_call_margin 1_000
@@ -170,6 +173,44 @@ defmodule GraphConn.ConnectionManager do
     |> GenServer.cast({:open_ws_connection, target_api})
   end
 
+  @doc """
+  Returns the largest frame `target_api`'s server accepts, in bytes: what its latest `hello`
+  advertised, kept while the connection is down or being replaced, or #{@default_max_frame_bytes}
+  when that `hello` advertised none or the client is not running.
+  """
+  @spec max_frame_bytes(base_name :: atom(), target_api :: atom()) :: pos_integer()
+  def max_frame_bytes(base_name, target_api) do
+    base_name
+    |> :ets.whereis()
+    |> _lookup_max_frame_bytes(target_api)
+  rescue
+    ArgumentError -> @default_max_frame_bytes
+  end
+
+  defp _lookup_max_frame_bytes(:undefined, _target_api),
+    do: @default_max_frame_bytes
+
+  defp _lookup_max_frame_bytes(table, target_api) do
+    table
+    |> :ets.lookup({target_api, :max_frame_bytes})
+    |> case do
+      [{_key, max_frame_bytes}] when is_integer(max_frame_bytes) -> max_frame_bytes
+      _none_advertised -> @default_max_frame_bytes
+    end
+  end
+
+  @doc false
+  @spec hello_received(
+          base_name :: atom(),
+          ws_connection :: pid(),
+          max_frame_bytes :: pos_integer() | nil
+        ) :: :ok
+  def hello_received(base_name, ws_connection, max_frame_bytes) do
+    base_name
+    |> _name()
+    |> GenServer.cast({:hello_received, ws_connection, max_frame_bytes})
+  end
+
   defp _execute_rest(base_name, target_api, request, opts, attempt \\ 1) do
     case GraphRestCalls.execute(base_name, target_api, request, opts) do
       {:ok, %Response{code: 401}} = result ->
@@ -205,6 +246,7 @@ defmodule GraphConn.ConnectionManager do
 
   @impl GenServer
   def init({base_name, config}) do
+    :ok = ClientHello.validate!(config)
     _init_ets(base_name, config)
 
     desired_status =
@@ -255,6 +297,18 @@ defmodule GraphConn.ConnectionManager do
   end
 
   @impl GenServer
+  # Keyed by the sending connection, so a hello from a socket already replaced is dropped.
+  def handle_cast({:hello_received, ws_connection, max_frame_bytes}, %State{} = state) do
+    state.ws_connections
+    |> Map.get(ws_connection)
+    |> case do
+      nil -> :ok
+      api -> _update_ets(state.base_name, {api, :max_frame_bytes}, max_frame_bytes)
+    end
+
+    {:noreply, state}
+  end
+
   def handle_cast({:open_ws_connection, target_api}, %State{} = state) do
     {:reply, _, state} = handle_call({:open_ws_connection, target_api}, self(), state)
     {:noreply, state}

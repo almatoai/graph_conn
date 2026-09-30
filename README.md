@@ -131,6 +131,22 @@ config :my_app, MyConn,
 
 For communication with Graph server with REST calls we use pool of connections.
 
+An action-ws client can announce itself in a `clientHello`, sent once after every `hello` the
+server sends. Every key is optional, and a client that configures none sends nothing. `app` and
+`version` must be strings, so pass `to_string(Application.spec(:my_app, :vsn))` rather than the
+charlist:
+
+```elixir
+config :my_app, MyHandler,
+  client_hello: [
+    client: [app: "my-app", version: "1.2.3"],
+    settings: [redelivery: true]
+  ]
+```
+
+`GraphConn.max_frame_bytes(MyHandler, :"action-ws")` returns the frame limit the server advertised
+in its `hello`, or `1_000_000` when it advertised none.
+
 ### Invoke call
 
 Once connection is started, it will pick api versions from Graph server and authenticate
