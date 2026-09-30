@@ -115,17 +115,19 @@ defmodule GraphConn.WS do
           path :: String.t(),
           subprotocol :: String.t(),
           token :: String.t(),
-          tunnel_ref :: nil | reference()
+          tunnel_ref :: nil | reference(),
+          max_frame_bytes :: pos_integer() | :infinity
         ) ::
           {:ok, stream_ref :: reference() | [reference()]}
           | {:error, {:rate_limited, wait_in_ms :: non_neg_integer()}}
           | {:error, any()}
-  def ws_upgrade(conn_pid, path, subprotocol, token, tunnel_ref) do
+  def ws_upgrade(conn_pid, path, subprotocol, token, tunnel_ref, max_frame_bytes) do
     mono_start = System.monotonic_time()
 
     ws_opts =
       %{
         silence_pings: false,
+        max_frame_size: max_frame_bytes,
         protocols: [{subprotocol, :gun_ws_h}, {"token-#{token}", :gun_ws_h}]
       }
       |> _with_tunnel(tunnel_ref)

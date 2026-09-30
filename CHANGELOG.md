@@ -33,6 +33,9 @@
 
 ## Fixes
 
+- A WebSocket client takes incoming frames up to `:ws_max_frame_bytes` (per client, 16 MiB by
+  default) instead of gun's `1_000_000`, over which it dropped its own socket when the server relayed
+  a larger result. A value other than a positive integer or `:infinity` refuses to start the client.
 - The default `on_status_change/2` and `on_status_change/3` no longer raise on a tuple status (such
   as `{:disconnected, _}`) when logging at debug level, which took the client's supervision tree
   down.
