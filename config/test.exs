@@ -3,7 +3,14 @@ import Config
 config :ex_unit,
   capture_log: true
 
-config :graph_conn, insecure: true
+# Its own port, so this suite and a consumer's suite on the mock server's default 8081 can run at
+# the same time. Override with GRAPH_CONN_TEST_PORT.
+mock_server_port =
+  "GRAPH_CONN_TEST_PORT"
+  |> System.get_env("18081")
+  |> String.to_integer()
+
+config :graph_conn, insecure: true, mock_server_port: mock_server_port
 
 # config :graph_conn,
 #   insecure: true,
@@ -15,7 +22,7 @@ config :graph_conn, insecure: true
 #   ]
 
 config :graph_conn, GraphConn.TestConn,
-  url: "http://localhost:8081",
+  url: "http://localhost:#{mock_server_port}",
   # auto_connect: true, # true | false | :just_versions
   insecure: true,
   timeout: 30_000,
@@ -34,7 +41,7 @@ config :graph_conn, GraphConn.TestConn,
   ]
 
 config :graph_conn, ActionHandler,
-  url: "http://localhost:8081",
+  url: "http://localhost:#{mock_server_port}",
   insecure: true,
   ws_ping: [
     interval_in_ms: 2_000,
@@ -50,7 +57,7 @@ config :graph_conn, ActionHandler,
   ]
 
 config :graph_conn, GraphConn.Test.EventHandler,
-  url: "http://localhost:8081",
+  url: "http://localhost:#{mock_server_port}",
   insecure: true,
   ws_ping: [
     interval_in_ms: 2_000,
