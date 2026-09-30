@@ -1,8 +1,11 @@
 # Changelog
 
-⚠️ **Breaking changes** in [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
+⚠️ **Breaking changes** in [1.11.0](#1110), [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
 
-# Unreleased
+# 1.11.0 <a id="1110"></a>
+
+Adds the action-ws `hello`/`clientHello` exchange and frame limits, and re-tokens open WebSockets
+on every token refresh.
 
 ## Breaking
 
@@ -31,7 +34,7 @@
   (`GraphConn.Mock.token_updates/2`), and can rotate tokens (`GraphConn.Mock.rotate_tokens/2`) or
   delay an upgrade (`GraphConn.Mock.delay_ws_upgrade/2`).
 
-## Fixes
+## Fix
 
 - An action handler whose `execute/3` crashes (including through a linked helper) answers with an
   `action_status` `54` error, and one that outlives its execution timeout with `13`, instead of
