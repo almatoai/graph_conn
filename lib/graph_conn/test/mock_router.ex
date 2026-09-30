@@ -256,7 +256,10 @@ if Code.ensure_loaded?(Plug.Cowboy) do
     end
 
     defp _identity_with_expiry(token) do
-      identity = _identity(token)
+      identity =
+        token
+        |> Mock.issue_token()
+        |> _identity()
 
       token
       |> Mock.expires_at()
@@ -277,13 +280,22 @@ if Code.ensure_loaded?(Plug.Cowboy) do
     end
 
     defp _if_authorized(conn, fun) do
-      case :proplists.get_value("authorization", conn.req_headers) do
-        "Bearer " <> @valid_token -> fun.()
-        "Bearer " <> @valid_handler_token -> fun.()
-        "Bearer " <> @valid_standalone_token -> fun.()
+      "authorization"
+      |> :proplists.get_value(conn.req_headers)
+      |> _bearer_base_token()
+      |> case do
+        @valid_token -> fun.()
+        @valid_handler_token -> fun.()
+        @valid_standalone_token -> fun.()
         _ -> _unauthorized(conn)
       end
     end
+
+    defp _bearer_base_token("Bearer " <> token),
+      do: Mock.base_token(token)
+
+    defp _bearer_base_token(_authorization),
+      do: nil
 
     defp _success(conn, body) when is_binary(body) do
       conn

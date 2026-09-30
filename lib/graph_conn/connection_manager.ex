@@ -47,6 +47,8 @@ defmodule GraphConn.ConnectionManager do
   @default_startup_wait 500
   # What a server that advertises no limit in its `hello` is assumed to accept.
   @default_max_frame_bytes 1_000_000
+  @default_ws_stop_timeout 5_000
+  @token_message_apis [:"events-ws", :"graph-ws"]
   @default_status_timeout 5_000
   @default_auth_timeout 60_000
   @refresh_call_margin 1_000
@@ -368,6 +370,11 @@ defmodule GraphConn.ConnectionManager do
     {:noreply, state}
   end
 
+  # A socket replaced by `_retoken/4` is already out of `ws_connections`, and its successor is up.
+  def handle_info({:DOWN, _monitor_ref, :process, conn_pid, _reason}, %State{} = state)
+      when not is_map_key(state.ws_connections, conn_pid),
+      do: {:noreply, state}
+
   def handle_info({:DOWN, _monitor_ref, :process, conn_pid, reason}, %State{} = state) do
     api = Map.get(state.ws_connections, conn_pid)
     _status_changed(api, reason, state)
@@ -549,6 +556,61 @@ defmodule GraphConn.ConnectionManager do
     state
   end
 
+  # A live socket keeps the token it upgraded with, so every refresh hands the open sockets the new
+  # one before the old can expire.
+  defp _retoken_ws_connections(%State{} = state) do
+    [{:token, token}] = :ets.lookup(state.base_name, :token)
+
+    state.ws_connections
+    |> Enum.reduce(state, fn {ws_connection, api}, acc ->
+      _retoken(acc, ws_connection, api, token)
+    end)
+  end
+
+  # These take the new token in-band on the open socket.
+  defp _retoken(%State{} = state, ws_connection, api, token)
+       when api in @token_message_apis do
+    :ok = WsConnection.update_token(ws_connection, token)
+    state
+  end
+
+  # Any other socket can only take a new token by reconnecting. Callers spin on the nil `conn_pid`
+  # rather than casting to a socket that is going away, and the due stamp lets them wait out an
+  # upgrade slower than `:startup_wait_ms`, up to the same `:retry_max_ms` bound as any reopen.
+  defp _retoken(%State{} = state, ws_connection, api, _token) do
+    Logger.info("Reopening #{api} WS connection with the refreshed token")
+    swap_due_at = System.monotonic_time(:millisecond) + _retry_max()
+    _update_ets(state.base_name, {api, :reopen_due_at}, swap_due_at)
+    _update_ets(state.base_name, {api, :conn_pid}, nil)
+    state = %State{state | ws_connections: Map.delete(state.ws_connections, ws_connection)}
+    _stop_ws_connection(ws_connection)
+
+    {:reply, _reply, %State{} = state} = _open_ws(state, api, _initial(), :reopen_dropped_ws)
+    state
+  end
+
+  defp _retry_max,
+    do: Application.get_env(:graph_conn, :retry_max_ms, @default_retry_max)
+
+  # A stop that times out leaves the process up and holding its name, so the reopen would find the
+  # old socket `:already_started` and keep it.
+  defp _stop_ws_connection(ws_connection) do
+    stop_timeout = Application.get_env(:graph_conn, :ws_stop_timeout_ms, @default_ws_stop_timeout)
+    GenServer.stop(ws_connection, :normal, stop_timeout)
+  catch
+    :exit, {:timeout, _stop} -> _kill_ws_connection(ws_connection)
+    :exit, _already_gone -> :ok
+  end
+
+  defp _kill_ws_connection(ws_connection) do
+    monitor = Process.monitor(ws_connection)
+    Process.exit(ws_connection, :kill)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^ws_connection, _reason} -> :ok
+    end
+  end
+
   # The token was what the Graph refused, so a fresh one is the first moment reconnecting can
   # work. Nothing else brings these back: a handler never sends a request of its own.
   defp _reopen_refused(%State{} = state) do
@@ -708,7 +770,10 @@ defmodule GraphConn.ConnectionManager do
         _update_ets(state.base_name, :token, token)
         _status_changed(:ready, state)
 
-        state = _reopen_refused(%State{state | status: :ready})
+        state =
+          %State{state | status: :ready}
+          |> _retoken_ws_connections()
+          |> _reopen_refused()
 
         {:noreply, state}
 
