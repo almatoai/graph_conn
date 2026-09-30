@@ -189,8 +189,11 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       client_type
       |> GraphConn.Mock.take_request_denial()
       |> case do
-        {:ok, retry_after_ms} -> _deny(state, id, retry_after_ms)
-        :error -> _submit(request, id, capability, state)
+        {:ok, retry_after_ms} ->
+          _deny(state, id, retry_after_ms)
+
+        :error ->
+          _submit(request, id, capability, state, GraphConn.Mock.take_submit_drop(client_type))
       end
     end
 
@@ -228,7 +231,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       _broadcast(state.registry_key, response)
     end
 
-    defp _submit(request, id, capability, state) do
+    defp _submit(request, id, capability, state, drop) do
       capabilities = GraphConn.Mock.get_capabilities()
 
       if capability in Map.keys(capabilities) do
@@ -247,7 +250,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
           |> Jason.encode!()
 
         _broadcast(state.registry_key, ack)
-        _broadcast("action_handler", Jason.encode!(request))
+        _forward(request, drop)
       else
         nack =
           %{
@@ -261,6 +264,13 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         _broadcast(state.registry_key, nack)
       end
     end
+
+    # Acked but never handed to a handler, as a request no handler answers looks to its invoker.
+    defp _forward(_request, {:ok, :drop}),
+      do: :ok
+
+    defp _forward(request, :error),
+      do: _broadcast("action_handler", Jason.encode!(request))
 
     # What a rate-limiting gateway answers on the open socket: an error frame carrying the client's
     # own id, in place of the ack.

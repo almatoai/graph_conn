@@ -33,6 +33,10 @@
 
 ## Fixes
 
+- An action handler whose `execute/3` crashes (including through a linked helper) answers with an
+  `action_status` `54` error, and one that outlives its execution timeout with `13`, instead of
+  leaving the request claimed, unanswered, for the cache's hour. The mock server can ack a request
+  without handing it to any handler (`GraphConn.Mock.drop_next_submit/2`).
 - A WebSocket client takes incoming frames up to `:ws_max_frame_bytes` (per client, 16 MiB by
   default) instead of gun's `1_000_000`, over which it dropped its own socket when the server relayed
   a larger result. A value other than a positive integer or `:infinity` refuses to start the client.

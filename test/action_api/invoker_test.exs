@@ -228,7 +228,10 @@ defmodule GraphConn.ActionApi.InvokerTest do
     end
 
     test "returns timeout if execution took too long" do
-      params = %{other_handler: "Echo", command: "ls", sleep: 10_000, timeout: 1}
+      # No handler ever answers: the first send and the last call are both dropped.
+      GraphConn.Mock.drop_next_submit("standalone", 2)
+      on_exit(fn -> GraphConn.Mock.clear_rate_limit({:submit_drop, "standalone"}) end)
+      params = %{other_handler: "Echo", command: "ls", timeout: 1}
 
       assert {:error, _req_id, {:exec_timeout, 1_000}} =
                ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)

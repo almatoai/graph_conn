@@ -126,9 +126,8 @@ if Code.ensure_loaded?(Cachex) do
             ) do
           Logger.debug("[ActionHandler] Received message: #{inspect(msg)}")
 
-          task_fun = _task(req_id, capability, params)
-
           execution_timeout = msg["timeout"] || default_execution_timeout(capability)
+          task_fun = _task(req_id, capability, params, execution_timeout)
 
           Task.Supervisor.start_child(_task_supervisor_name(), task_fun,
             shutdown: execution_timeout + 500
@@ -153,7 +152,7 @@ if Code.ensure_loaded?(Cachex) do
           )
         end
 
-        defp _task(req_id, capability, params) do
+        defp _task(req_id, capability, params, execution_timeout) do
           fn ->
             Logger.metadata(req_id: req_id)
 
@@ -170,7 +169,7 @@ if Code.ensure_loaded?(Cachex) do
               {:ok, :execute_action} ->
                 response =
                   req_id
-                  |> _execute_action(capability, params)
+                  |> _execute_unlinked(capability, params, execution_timeout)
                   |> _fit_frame(req_id)
 
                 _set_response(req_id, response)
@@ -263,8 +262,8 @@ if Code.ensure_loaded?(Cachex) do
         defp _execute_action(req_id, capability, params) do
           Logger.info("[ActionHandler] Executing #{inspect(capability)}: #{inspect(params)}")
 
-          __MODULE__
-          |> apply(:execute, [req_id, capability, params])
+          req_id
+          |> _safe_execute(capability, params)
           |> case do
             {:ok, response} ->
               Jason.encode!(response)
@@ -275,6 +274,64 @@ if Code.ensure_loaded?(Cachex) do
                 _ -> Jason.encode!(%{error: inspect(error)})
               end
           end
+        end
+
+        # Unlinked and bounded, so neither a crash that gets past `_safe_execute/3` (a linked helper
+        # dying, a kill) nor a hang can leave the claimed request without an answer.
+        defp _execute_unlinked(req_id, capability, params, execution_timeout) do
+          task =
+            _task_supervisor_name()
+            |> Task.Supervisor.async_nolink(fn ->
+              Logger.metadata(req_id: req_id)
+              _execute_action(req_id, capability, params)
+            end)
+
+          task
+          |> Task.yield(execution_timeout)
+          |> case do
+            nil -> Task.shutdown(task, :brutal_kill)
+            finished -> finished
+          end
+          |> case do
+            {:ok, response} ->
+              response
+
+            {:exit, reason} ->
+              _error_result(req_id, 54, "Execution failed: #{_exit_banner(reason)}")
+
+            nil ->
+              Logger.error("[ActionHandler] #{inspect(capability)} timed out", req_id: req_id)
+              _error_result(req_id, 13, "Execution timed out after #{execution_timeout}ms")
+          end
+        end
+
+        # The stacktrace stays in the crash report: this text travels to the Graph and the invoker.
+        defp _exit_banner({exception, _stacktrace}) when is_exception(exception),
+          do: Exception.format_banner(:error, exception)
+
+        defp _exit_banner(reason),
+          do: Exception.format_banner(:exit, reason)
+
+        defp _error_result(req_id, action_status, action_error),
+          do: Jason.encode!(%{error: _error(req_id, action_status, action_error)})
+
+        defp _error(req_id, action_status, action_error),
+          do: %{req_id: req_id, action_status: action_status, action_error: action_error}
+
+        # A crash would leave the request claimed in the cache with nothing ever answering it, so
+        # it becomes an error result like any other, which waiting tasks and redeliveries then get.
+        defp _safe_execute(req_id, capability, params) do
+          apply(__MODULE__, :execute, [req_id, capability, params])
+        catch
+          kind, reason ->
+            Logger.error(
+              "[ActionHandler] #{inspect(capability)} crashed: " <>
+                Exception.format(kind, reason, __STACKTRACE__),
+              req_id: req_id
+            )
+
+            banner = Exception.format_banner(kind, reason)
+            {:error, _error(req_id, 54, "Execution failed: #{banner}")}
         end
 
         @doc false
