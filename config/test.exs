@@ -7,7 +7,7 @@ config :ex_unit,
 # the same time. Override with GRAPH_CONN_TEST_PORT.
 mock_server_port =
   "GRAPH_CONN_TEST_PORT"
-  |> System.get_env("18081")
+  |> System.get_env("18082")
   |> String.to_integer()
 
 config :graph_conn, insecure: true, mock_server_port: mock_server_port

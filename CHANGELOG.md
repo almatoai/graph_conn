@@ -2,6 +2,20 @@
 
 ⚠️ **Breaking changes** in [1.11.0](#1110), [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
 
+# 1.11.1
+
+## Fix
+
+- The action invoker hands a result that is not a JSON-encoded string (an object, plain text, a
+  number, or none) to the caller as-is instead of crashing.
+- `GraphConn.Test.MockServer` starts at once on a port the previous run left in TIME_WAIT, instead
+  of waiting 10s and logging a false "another suite is holding it" error.
+
+## Enhancement
+
+- `GraphConn.Mock.acknowledged?/1` tells whether any client sent the mock an `acknowledged` for a
+  request.
+
 # 1.11.0 <a id="1110"></a>
 
 Adds the action-ws `hello`/`clientHello` exchange and frame limits, and re-tokens open WebSockets

@@ -158,8 +158,8 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       {:ok, state}
     end
 
-    defp _respond(%{type: "acknowledged", id: _id}, _state),
-      do: :ok
+    defp _respond(%{type: "acknowledged", id: id}, _state),
+      do: GraphConn.Mock.put_acknowledged(id)
 
     defp _respond(%{type: "clientHello"} = client_hello, state),
       do: GraphConn.Mock.put_client_hello(state.client_type, client_hello)
