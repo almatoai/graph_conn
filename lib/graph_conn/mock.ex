@@ -141,6 +141,7 @@ defmodule GraphConn.Mock do
   @client_hello_key :client_hello
   @token_update_key :token_update
   @ws_upgrades_key :ws_upgrades
+  @acknowledged_key :acknowledged
 
   @doc """
   Arms the mock to answer the next `times` authentication requests carrying `client_id`
@@ -299,6 +300,13 @@ defmodule GraphConn.Mock do
   end
 
   @doc false
+  @spec put_acknowledged(request_id :: String.t()) :: :ok
+  def put_acknowledged(request_id) do
+    true = :ets.insert(__MODULE__, {{@acknowledged_key, request_id}, true})
+    :ok
+  end
+
+  @doc false
   @spec put_token_update(api :: atom(), upgrade_token :: String.t(), token :: String.t()) :: :ok
   def put_token_update(api, upgrade_token, token) do
     updates = token_updates(api, upgrade_token)
@@ -402,6 +410,11 @@ defmodule GraphConn.Mock do
       [] -> nil
     end
   end
+
+  @doc "Tells whether any client sent the mock an `acknowledged` for `request_id`."
+  @spec acknowledged?(request_id :: String.t()) :: boolean()
+  def acknowledged?(request_id),
+    do: :ets.member(__MODULE__, {@acknowledged_key, request_id})
 
   @doc false
   @spec take_ws_upgrade_rejection(client_type :: String.t()) ::

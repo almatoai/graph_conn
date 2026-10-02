@@ -213,7 +213,7 @@ defmodule GraphConn.ActionApi.Invoker do
             )
 
       def handle_message(:"action-ws", %{"type" => "sendActionResult"} = msg, %InvokerState{}) do
-        result = Jason.decode!(msg["result"])
+        result = _decode_result(msg["result"])
         RequestRegistry.respond(__MODULE__, msg["id"], result, @request_registry)
 
         Logger.debug("[ActionInvoker] Acking response", req_id: msg["id"])
@@ -562,6 +562,20 @@ defmodule GraphConn.ActionApi.Invoker do
             {:error, request_id, {:exec_timeout, timeout}}
         end
       end
+
+      # The server relays the handler's result unvalidated, so anything that isn't JSON passes as-is.
+      @spec _decode_result(result :: term()) :: term()
+      defp _decode_result(result) when is_binary(result) do
+        result
+        |> Jason.decode()
+        |> case do
+          {:ok, decoded} -> decoded
+          {:error, %Jason.DecodeError{}} -> result
+        end
+      end
+
+      defp _decode_result(result),
+        do: result
 
       @spec _inject_capabilities(state :: map()) :: map()
       defp _inject_capabilities(%{} = token) do
