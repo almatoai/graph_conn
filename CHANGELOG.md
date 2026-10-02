@@ -8,6 +8,8 @@
 
 - The action invoker hands a result that is not a JSON-encoded string (an object, plain text, a
   number, or none) to the caller as-is instead of crashing.
+- `GraphConn.Test.MockServer` starts at once on a port the previous run left in TIME_WAIT, instead
+  of waiting 10s and logging a false "another suite is holding it" error.
 
 ## Enhancement
 

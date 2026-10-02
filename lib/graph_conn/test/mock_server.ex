@@ -37,12 +37,10 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       Supervisor.start_link(__MODULE__, config, name: __MODULE__)
     end
 
-    # Binding and immediately closing is the only portable way to ask whether a port is free. The
-    # gap before Ranch binds it is a genuine race, but only against a suite starting at the very
-    # same moment -- which needs its own port, not a longer wait.
+    # Asked with `reuseaddr`, as Ranch binds, so a port the previous run left in TIME_WAIT is free.
     defp _await_free_port(port, attempts_left) do
       port
-      |> :gen_tcp.listen([:binary, {:active, false}])
+      |> :gen_tcp.listen([:binary, {:active, false}, {:reuseaddr, true}])
       |> case do
         {:ok, socket} ->
           :ok = :gen_tcp.close(socket)
@@ -57,8 +55,16 @@ if Code.ensure_loaded?(Plug.Cowboy) do
             "Port #{port} still #{inspect(reason)} after " <>
               "#{@port_wait_attempts * @port_wait_in_ms}ms; another suite is holding it."
           )
+
+          {:error, reason}
       end
     end
+
+    @doc false
+    @spec __await_free_port__(port :: :inet.port_number(), attempts_left :: pos_integer()) ::
+            :ok | {:error, reason :: term()}
+    def __await_free_port__(port, attempts_left),
+      do: _await_free_port(port, attempts_left)
 
     @impl Supervisor
     def init(config) do
