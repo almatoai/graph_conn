@@ -9,20 +9,10 @@ defmodule GraphConn.MixProject do
   #   never calls it and cowboy here serves only the test mock server
   #   EEF-CVE-2026-43969 — cow_cookie:cookie/1 is reached only via gun's cookie_store, never set
   #
-  # mint is locked at 1.10.1: 1.11.0 pools a connection after a receive timeout and the next
-  # request on it crashes on the stale reply. mint's only user is the HTTP/1 Finch pool.
-  #   EEF-CVE-2026-91043 — HTTP/2 only
-  #   EEF-CVE-2026-92103 — HTTP/2 only
-  #   EEF-CVE-2026-94194 — HTTP/1 chunked response smuggling: in reach, risk accepted (needs a
-  #   hostile graph or intermediary, including the configured proxy)
-  #
   # GHSA-w4f7-4cxr-rv3c — self-inconsistent for gun, see `@ignored_advisories` below
   @ignored_hex_advisories [
     "EEF-CVE-2026-43966",
     "EEF-CVE-2026-43969",
-    "EEF-CVE-2026-91043",
-    "EEF-CVE-2026-92103",
-    "EEF-CVE-2026-94194",
     "GHSA-w4f7-4cxr-rv3c"
   ]
 
