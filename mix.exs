@@ -26,6 +26,7 @@ defmodule GraphConn.MixProject do
       test_coverage: [tool: ExCoveralls],
       dialyzer: [
         plt_add_deps: :apps_direct,
+        plt_core_path: "_build/#{Mix.env()}",
         # :ex_unit because dialyzer analyses test/support, which is compiled in :dev and :test.
         plt_add_apps: [
           :mix,
