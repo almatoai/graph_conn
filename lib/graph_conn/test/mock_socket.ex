@@ -143,7 +143,8 @@ if Code.ensure_loaded?(Plug.Cowboy) do
     end
 
     @doc false
-    @spec websocket_handle(frame :: term(), state :: map()) :: {:ok, map()}
+    @spec websocket_handle(frame :: term(), state :: map()) ::
+            {:ok, map()} | {:reply, {:text, String.t()}, map()}
     def websocket_handle(:ping, state) do
       Logger.debug("[MockSocket] Received PING")
 
@@ -154,8 +155,10 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       incoming_message
       |> Jason.decode!(keys: :atoms)
       |> _respond(state)
-
-      {:ok, state}
+      |> case do
+        {:reply, payload} -> {:reply, {:text, payload}, state}
+        _handled -> {:ok, state}
+      end
     end
 
     defp _respond(%{type: "acknowledged", id: id}, _state),
@@ -223,12 +226,13 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       end)
     end
 
-    defp _respond(msg, state) do
+    # To the sender alone, as the Graph does: a broadcast would hand one client another's error.
+    defp _respond(msg, _state) do
       response =
         %{"type" => "error", "code" => 400, "message" => "invalid action message #{inspect(msg)}"}
         |> Jason.encode!()
 
-      _broadcast(state.registry_key, response)
+      {:reply, response}
     end
 
     defp _submit(request, id, capability, state, drop) do
