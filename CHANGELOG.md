@@ -10,6 +10,8 @@
   `config :graph_conn, conn_max_idle_time: ms` to change it, or `:infinity` for the old behaviour.
 - The action invoker acks a result before handing it to the caller, so a request registry that does
   not know the request no longer holds the ack back for up to 5s.
+- `GraphConn.Test.MockServer` answers an invalid action-ws or events-ws frame to the sending socket
+  only, instead of to every client sharing its role.
 
 ## Enhancement
 

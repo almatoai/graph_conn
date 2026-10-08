@@ -72,14 +72,19 @@ defmodule GraphConn.RetokenTest do
       # Longer than `:startup_wait_ms`, the whole wait a caller gets when no reopen is on the clock.
       Mock.delay_ws_upgrade("invoker", 800)
 
+      # A frame the mock takes silently, so the ack proves it went through the reopened socket.
+      frame_id = UUID.uuid4()
+
       caller =
         Task.async(fn ->
           Process.sleep(100)
-          TestConn.execute(:"action-ws", %Request{body: %{type: "ping"}})
+
+          TestConn.execute(:"action-ws", %Request{body: %{type: "acknowledged", id: frame_id}})
         end)
 
       assert :ok = GenServer.call(_manager_pid(), :refresh_token, 10_000)
       assert :ok == Task.await(caller, 15_000)
+      assert :ok == _await_acknowledged(frame_id, _deadline())
     end
   end
 
@@ -131,6 +136,20 @@ defmodule GraphConn.RetokenTest do
       true ->
         Process.sleep(20)
         _await_upgrade_with(token, deadline)
+    end
+  end
+
+  defp _await_acknowledged(frame_id, deadline) do
+    cond do
+      Mock.acknowledged?(frame_id) ->
+        :ok
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("the frame sent through the reopened socket never reached the mock")
+
+      true ->
+        Process.sleep(20)
+        _await_acknowledged(frame_id, deadline)
     end
   end
 
