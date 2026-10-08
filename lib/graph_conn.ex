@@ -124,6 +124,7 @@ defmodule GraphConn do
   defdelegate execute(base_name, target_api, request), to: GraphConn.ConnectionManager
   defdelegate open_ws_connection(base_name, target_api), to: GraphConn.ConnectionManager
   defdelegate max_frame_bytes(base_name, target_api), to: GraphConn.ConnectionManager
+  defdelegate ws_status(base_name, target_api), to: GraphConn.ConnectionManager
 
   defdelegate get_client_state(base_name), to: GraphConn.ClientState, as: :get_state
   defdelegate put_client_state(base_name, new_state), to: GraphConn.ClientState, as: :put_state
