@@ -25,6 +25,9 @@ defmodule TestActionHandler do
     |> Task.await()
   end
 
+  def execute(_req_id, "ExecuteCommand", %{"invalid_utf8" => prefix}),
+    do: {:ok, %{"stdout" => prefix <> <<0xFF, 0xFE>>}}
+
   def execute(_req_id, "RunScript", %{"hang" => _hang}),
     do: Process.sleep(:infinity)
 

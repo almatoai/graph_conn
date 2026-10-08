@@ -39,6 +39,20 @@ defmodule GraphConn.ActionApi.HandlerCrashTest do
     assert %{"error" => %{"action_status" => 13}} = Jason.decode!(cached)
   end
 
+  test "a result that is not valid UTF-8 reaches the invoker as a bounded action_status 54 error" do
+    params = %{"invalid_utf8" => String.duplicate("a", 300_000)}
+
+    assert {:error, req_id, %{"req_id" => req_id, "action_status" => 54, "action_error" => error}} =
+             _execute(params)
+
+    assert error =~ "Jason.EncodeError"
+    assert error =~ "invalid byte 0xFF"
+    assert byte_size(error) < 5_000
+
+    assert {:ok, cached} = Cachex.get(TestActionHandler._request_cache_name(), req_id)
+    assert %{"error" => %{"action_status" => 54}} = Jason.decode!(cached)
+  end
+
   test "a crashed execute is cached as its error, so a redelivery never waits on it" do
     {:error, req_id, _error} = _execute(%{"raise" => "capability blew up"})
 
