@@ -2,6 +2,22 @@
 
 ⚠️ **Breaking changes** in [1.11.0](#1110), [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
 
+# 1.11.2
+
+## Fix
+
+- A pooled REST connection idle for more than 10 minutes is replaced instead of reused. Set
+  `config :graph_conn, conn_max_idle_time: ms` to change it, or `:infinity` for the old behaviour.
+- The action invoker acks a result before handing it to the caller, so a request registry that does
+  not know the request no longer holds the ack back for up to 5s.
+- `GraphConn.Test.MockServer` answers an invalid action-ws or events-ws frame to the sending socket
+  only, instead of to every client sharing its role.
+
+## Enhancement
+
+- `GraphConn.ws_status/2` tells whether a client's WebSocket for an api is `:connected` or
+  `:disconnected`.
+
 # 1.11.1
 
 ## Fix

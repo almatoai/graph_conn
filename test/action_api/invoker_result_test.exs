@@ -4,6 +4,7 @@ defmodule GraphConn.ActionApi.InvokerResultTest do
   alias GraphConn.ActionApi.Invoker.RequestRegistry
   alias GraphConn.ActionApi.Invoker.State, as: InvokerState
   alias GraphConn.Mock
+  alias GraphConn.Test.NilMissInvoker
 
   setup do
     request_id = UUID.uuid4()
@@ -44,6 +45,41 @@ defmodule GraphConn.ActionApi.InvokerResultTest do
       assert :ok == ActionInvoker.handle_message(:"action-ws", msg, %InvokerState{})
       assert_receive {:response, ^request_id, nil}
       assert :ok == _await_acknowledged(request_id)
+    end
+  end
+
+  describe "receiving a result the registry does not know" do
+    setup do
+      config = Application.get_env(:graph_conn, GraphConn.TestConn)
+      start_supervised!({NilMissInvoker, config})
+      :ok = _await_ws_connection(NilMissInvoker, System.monotonic_time(:millisecond) + 5_000)
+    end
+
+    test "acks it well before giving up on delivering it" do
+      request_id = UUID.uuid4()
+      msg = %{"type" => "sendActionResult", "id" => request_id, "result" => ~s({"ok":true})}
+
+      {:ok, receiver} =
+        Task.start(fn -> NilMissInvoker.handle_message(:"action-ws", msg, %InvokerState{}) end)
+
+      on_exit(fn -> Process.exit(receiver, :kill) end)
+
+      deadline = System.monotonic_time(:millisecond) + 500
+      assert :ok == _await_acknowledged(request_id, deadline)
+    end
+  end
+
+  defp _await_ws_connection(invoker, deadline) do
+    invoker
+    |> :ets.lookup({:"action-ws", :conn_pid})
+    |> case do
+      [{_key, conn_pid}] when is_pid(conn_pid) ->
+        :ok
+
+      _not_yet ->
+        assert System.monotonic_time(:millisecond) < deadline, "no action-ws connection"
+        Process.sleep(10)
+        _await_ws_connection(invoker, deadline)
     end
   end
 
