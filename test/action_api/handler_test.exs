@@ -8,16 +8,12 @@ defmodule GraphConn.ActionApi.HandlerTest do
   end
 
   test "ah execution is run in parallel" do
-    # For each execution we get 2 new processes. Cachex.transaction/3 executes block in a single process, so:
-    #
-    # - If one action is executed at least 40ms (sleep), we'll have only 4 actions finished in 180ms,
-    # thus having 12 processes around.
-    # - If all 10 actions are executed in parallel (out of Cachex transaction),
-    # all 10 actions will finish in 180ms and there shouldn't be new processes around.
-
+    # Each execution adds processes that go away once it has answered. Run one at a time, 10
+    # executions of 100ms cannot all answer in under a second; the deadline sits below that.
     procs_before = :erlang.processes() |> MapSet.new()
-    params = %{"other_handler" => "Echo", "command" => "ls", "sleep" => 40}
+    params = %{"other_handler" => "Echo", "command" => "ls", "sleep" => 100}
     executions = 10
+    deadline = System.monotonic_time(:millisecond) + 800
 
     for _ <- 1..executions do
       spawn(fn ->
@@ -26,13 +22,7 @@ defmodule GraphConn.ActionApi.HandlerTest do
       end)
     end
 
-    Process.sleep(180)
-
-    assert 0 ==
-             :erlang.processes()
-             |> MapSet.new()
-             |> MapSet.difference(procs_before)
-             |> Enum.count()
+    assert :ok == _await_no_new_processes(procs_before, deadline)
   end
 
   test "second action call with the same req_id is waiting for first execution to finish" do
@@ -59,6 +49,25 @@ defmodule GraphConn.ActionApi.HandlerTest do
       assert {:ok, %{"other_handler" => "Echo", "command" => "ls", "timeout" => _}} =
                ActionInvoker.execute(req_id, _ah_id(), "ExecuteCommand", params)
     end
+  end
+
+  defp _await_no_new_processes(procs_before, deadline) do
+    :erlang.processes()
+    |> MapSet.new()
+    |> MapSet.difference(procs_before)
+    |> MapSet.size()
+    |> _no_new_processes(System.monotonic_time(:millisecond), procs_before, deadline)
+  end
+
+  defp _no_new_processes(0, _now, _procs_before, _deadline),
+    do: :ok
+
+  defp _no_new_processes(left, now, _procs_before, deadline) when now >= deadline,
+    do: {:still_running, left}
+
+  defp _no_new_processes(_left, _now, procs_before, deadline) do
+    Process.sleep(10)
+    _await_no_new_processes(procs_before, deadline)
   end
 
   defp _ah_id do
