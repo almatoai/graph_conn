@@ -14,7 +14,8 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
     do: Module.concat(base_name, RequestRegistry)
 
   @callback register_self(registry :: atom(), key :: term()) :: :ok
-  @callback lookup(registry :: atom(), key :: term()) :: [pid()]
+  # `nil` when the request is not registered yet: a result for it is retried for up to 5s.
+  @callback lookup(registry :: atom(), key :: term()) :: [pid()] | nil
   @callback unregister(registry :: atom(), key :: term()) :: :ok
 
   @doc """
