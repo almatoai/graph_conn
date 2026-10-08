@@ -16,11 +16,12 @@ defmodule GraphConn.Features.RateLimitedCallerTest do
   @moduletag :feature
 
   alias GraphConn.Mock
+  alias GraphConn.Test.ActionWsReopen
 
   setup do
     on_exit(fn ->
       Mock.clear_rate_limit({:ws_upgrade, "standalone"})
-      _await_ws_connection(System.monotonic_time(:millisecond) + 15_000)
+      ActionWsReopen.await_ws_connection(System.monotonic_time(:millisecond) + 15_000)
     end)
 
     :ok
@@ -29,7 +30,7 @@ defmodule GraphConn.Features.RateLimitedCallerTest do
   describe "Scenario: sending a request while the WebSocket reopen is rate limited" do
     test "answers the caller with an error naming the request, instead of raising" do
       # Given the invoker's connection has gone, and the graph refuses to let it back in
-      _refuse_next_reopen(429, 2)
+      ActionWsReopen.refuse_next_reopen(429, 2)
 
       # When a caller sends a request
       result =
@@ -72,53 +73,5 @@ defmodule GraphConn.Features.RateLimitedCallerTest do
     on_exit(fn -> :ets.insert(ActionInvoker, {:versions, versions}) end)
 
     :ets.insert(ActionInvoker, {:versions, Map.delete(versions, :"action-ws")})
-  end
-
-  defp _refuse_next_reopen(status, retry_after_seconds) do
-    conn_pid = _conn_pid()
-    assert is_pid(conn_pid)
-
-    Mock.reject_ws_upgrade("standalone", 1, status, retry_after_seconds)
-    Process.exit(conn_pid, :kill)
-    _await_pending_reopen(System.monotonic_time(:millisecond) + 5_000)
-  end
-
-  defp _await_pending_reopen(deadline) do
-    ActionInvoker
-    |> :ets.lookup({:"action-ws", :reopen_at})
-    |> case do
-      [{_key, reopen_at}] when is_integer(reopen_at) ->
-        :ok
-
-      _not_pending_yet ->
-        assert System.monotonic_time(:millisecond) < deadline, "no reopen was marked pending"
-        Process.sleep(10)
-        _await_pending_reopen(deadline)
-    end
-  end
-
-  defp _conn_pid do
-    ActionInvoker
-    |> :ets.lookup({:"action-ws", :conn_pid})
-    |> case do
-      [{_key, conn_pid}] -> conn_pid
-      [] -> nil
-    end
-  end
-
-  # The invoker is shared with the rest of the suite, so its connection has to be back before
-  # this test hands over.
-  defp _await_ws_connection(deadline) do
-    cond do
-      is_pid(_conn_pid()) ->
-        :ok
-
-      System.monotonic_time(:millisecond) < deadline ->
-        Process.sleep(50)
-        _await_ws_connection(deadline)
-
-      true ->
-        flunk("ActionInvoker never got its action-ws connection back")
-    end
   end
 end
