@@ -131,6 +131,17 @@ config :my_app, MyConn,
 
 For communication with Graph server with REST calls we use pool of connections.
 
+A pooled connection idle for longer than `conn_max_idle_time` is closed and replaced rather than
+reused. It defaults to 10 minutes. A NAT, load balancer or firewall on the path may drop an idle
+connection silently, so that neither end is told and the next request on it fails. If the logs
+show `Authentication error: :closed` / `Authentication failed: :closed`, or other `:closed` REST
+errors, right after a long quiet period, set `conn_max_idle_time` (in milliseconds) below that
+path's idle timeout. `:infinity` opts out and keeps idle connections for good.
+
+```elixir
+config :graph_conn, conn_max_idle_time: 240_000
+```
+
 An action-ws client can announce itself in a `clientHello`, sent once after every `hello` the
 server sends. Every key is optional, and a client that configures none sends nothing. `app` and
 `version` must be strings, so pass `to_string(Application.spec(:my_app, :vsn))` rather than the

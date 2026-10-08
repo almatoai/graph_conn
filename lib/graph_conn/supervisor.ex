@@ -3,6 +3,9 @@ defmodule GraphConn.Supervisor do
   use Supervisor
   alias GraphConn.Tools
 
+  # Well under the idle timeout of the middleboxes that drop a flow without telling either end.
+  @default_conn_max_idle_time 600_000
+
   @doc false
   @spec child_spec(args :: [atom() | Keyword.t()]) :: Supervisor.child_spec()
   def child_spec([base_name, config]) do
@@ -35,7 +38,7 @@ defmodule GraphConn.Supervisor do
       {Finch,
        name: Module.concat(base_name, Finch),
        pools: %{
-         default: _pool_opts()
+         default: __pool_opts__()
        }},
       {GraphConn.ConnectionManager, [base_name, config]}
     ]
@@ -44,15 +47,18 @@ defmodule GraphConn.Supervisor do
 
   defp _name(base_name), do: Module.concat(base_name, Supervisor)
 
-  defp _pool_opts do
-    base = [{:size, 50}, {:count, 1} | _conn_opts()]
+  @doc false
+  @spec __pool_opts__ :: Keyword.t()
+  def __pool_opts__ do
+    conn_max_idle_time =
+      :graph_conn
+      |> Application.get_env(:conn_max_idle_time)
+      |> case do
+        nil -> @default_conn_max_idle_time
+        configured -> configured
+      end
 
-    :graph_conn
-    |> Application.get_env(:conn_max_idle_time)
-    |> case do
-      nil -> base
-      timeout -> [{:conn_max_idle_time, timeout} | base]
-    end
+    [{:size, 50}, {:count, 1}, {:conn_max_idle_time, conn_max_idle_time} | _conn_opts()]
   end
 
   defp _conn_opts do
