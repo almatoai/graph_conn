@@ -213,9 +213,6 @@ defmodule GraphConn.ActionApi.Invoker do
             )
 
       def handle_message(:"action-ws", %{"type" => "sendActionResult"} = msg, %InvokerState{}) do
-        result = _decode_result(msg["result"])
-        RequestRegistry.respond(__MODULE__, msg["id"], result, @request_registry)
-
         Logger.debug("[ActionInvoker] Acking response", req_id: msg["id"])
 
         ack = %{type: "acknowledged", id: msg["id"], code: 200}
@@ -235,6 +232,10 @@ defmodule GraphConn.ActionApi.Invoker do
                 "Leaving it for the server to re-send."
             )
         end
+
+        # Acked first: delivery can wait out a registry that has not seen the request yet.
+        result = _decode_result(msg["result"])
+        RequestRegistry.respond(__MODULE__, msg["id"], result, @request_registry)
       end
 
       def handle_message(:"action-ws", %{"type" => "configChanged"} = msg, %InvokerState{}),
