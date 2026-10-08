@@ -201,6 +201,35 @@ defmodule GraphConn.ConnectionManager do
     end
   end
 
+  @doc """
+  Returns `:connected` while `target_api`'s WebSocket is up, and `:disconnected` while it is down
+  or being reopened, when it was never opened, or when the client is not running.
+  """
+  @spec ws_status(base_name :: atom(), target_api :: atom()) :: :connected | :disconnected
+  def ws_status(base_name, target_api) do
+    base_name
+    |> :ets.whereis()
+    |> _lookup_ws_status(target_api)
+  rescue
+    ArgumentError -> :disconnected
+  end
+
+  defp _lookup_ws_status(:undefined, _target_api),
+    do: :disconnected
+
+  # The manager nils `conn_pid` once it sees the socket go, so a dead pid is only the moment before.
+  defp _lookup_ws_status(table, target_api) do
+    table
+    |> :ets.lookup({target_api, :conn_pid})
+    |> case do
+      [{_key, conn_pid}] when is_pid(conn_pid) -> conn_pid |> Process.alive?() |> _ws_status()
+      _not_open -> :disconnected
+    end
+  end
+
+  defp _ws_status(true), do: :connected
+  defp _ws_status(false), do: :disconnected
+
   @doc false
   @spec hello_received(
           base_name :: atom(),

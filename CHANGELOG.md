@@ -11,6 +11,11 @@
 - The action invoker acks a result before handing it to the caller, so a request registry that does
   not know the request no longer holds the ack back for up to 5s.
 
+## Enhancement
+
+- `GraphConn.ws_status/2` tells whether a client's WebSocket for an api is `:connected` or
+  `:disconnected`.
+
 # 1.11.1
 
 ## Fix

@@ -162,6 +162,9 @@ frame from the server drops the socket.
 in its `hello`, or `1_000_000` when it advertised none. An action handler never sends a result
 frame over that limit: it logs a warning and sends an `action_status` `59` error instead.
 
+`GraphConn.ws_status(MyHandler, :"action-ws")` returns `:connected` while that WebSocket is up, and
+`:disconnected` while it is down or reopening, was never opened, or the client is not running.
+
 ### Invoke call
 
 Once connection is started, it will pick api versions from Graph server and authenticate
