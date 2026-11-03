@@ -1168,8 +1168,9 @@ defmodule GraphConn.ConnectionManager do
       |> Keyword.get(:url, config[:url])
       |> URI.parse()
 
+    configured_insecure = config[:insecure]
     transport = _transport_for_scheme(scheme)
-    insecure = _insecure_for_scheme(scheme, config[:insecure])
+    insecure = _insecure_for_scheme(scheme, configured_insecure)
 
     config =
       config
@@ -1180,10 +1181,11 @@ defmodule GraphConn.ConnectionManager do
 
     auth_transport = _transport_for_scheme(auth_scheme)
 
+    # The main url's derived `:insecure` is true for any http url, so default from the configured one.
     auth_insecure =
       auth_config
-      |> Keyword.get(:insecure, config[:insecure])
-      |> then(&_insecure_for_scheme(scheme, &1))
+      |> Keyword.get(:insecure, configured_insecure)
+      |> then(&_insecure_for_scheme(auth_scheme, &1))
 
     auth_config =
       auth_config

@@ -108,23 +108,20 @@ defmodule GraphConn.GraphRestCalls do
           config :: Keyword.t(),
           apis :: %{atom() => %{atom() => String.t()}}
         ) :: {:ok, %{token: String.t(), expires_at: pos_integer()}} | {:error, any()}
-  def authenticate(base_bame, config, %{auth: %{path: auth_namespace}}) do
+  def authenticate(base_name, config, %{auth: %{path: auth_namespace}}) do
     Logger.info("Authenticating...")
 
-    timeout =
-      config
-      |> Keyword.fetch!(:auth)
-      |> Keyword.get(:timeout, 60_000)
+    auth_config = Keyword.fetch!(config, :auth)
+    timeout = Keyword.get(auth_config, :timeout, 60_000)
 
     body =
-      config
-      |> Keyword.fetch!(:auth)
+      auth_config
       |> Keyword.fetch!(:credentials)
       |> Enum.into(%{})
       |> Jason.encode!()
 
     %Request{method: :post, path: auth_namespace <> "app", body: body}
-    |> _shoot(base_bame, config, timeout: timeout)
+    |> _shoot(base_name, auth_config, timeout: timeout)
     |> case do
       %Finch.Response{status: 200, body: body} ->
         _auth_response(body)
