@@ -4,15 +4,13 @@ defmodule GraphConn.MixProject do
   # Advisories waived for `hex.audit` (Hex/OSV ids). `@ignored_advisories` below is the
   # separate list `deps.audit` reads; an id in the wrong list is silently ignored.
   #
-  # cowlib 2.20.0 is its latest release; neither flaw has a patched version.
-  #   EEF-CVE-2026-43966 — cow_http_struct_hd:escape_string/2 serialises outgoing headers; gun
-  #   never calls it and cowboy here serves only the test mock server
-  #   EEF-CVE-2026-43969 — cow_cookie:cookie/1 is reached only via gun's cookie_store, never set
+  # EEF-CVE-2026-43966 — still flagged on cowlib 2.21.0. cow_http_struct_hd:escape_string/2
+  #   serialises outgoing headers; gun never calls it and cowboy here serves only the test mock
+  #   server
   #
   # GHSA-w4f7-4cxr-rv3c — self-inconsistent for gun, see `@ignored_advisories` below
   @ignored_hex_advisories [
     "EEF-CVE-2026-43966",
-    "EEF-CVE-2026-43969",
     "GHSA-w4f7-4cxr-rv3c"
   ]
 
@@ -104,7 +102,7 @@ defmodule GraphConn.MixProject do
 
   # Ignored advisories.
   #   GHSA-w4f7-4cxr-rv3c — self-inconsistent for gun: affected `< 2.4.0`, yet "patched" in
-  #   2.16.0, which is cowboy's fix and no gun version, so OSV and mix_audit flag gun 2.6.0.
+  #   2.16.0, which is cowboy's fix and no gun version, so OSV and mix_audit flag gun 2.7.0.
   #   The real flaw is in cowlib, waived as EEF-CVE-2026-43966 in `@ignored_hex_advisories`.
   @ignored_advisories "GHSA-w4f7-4cxr-rv3c"
 
