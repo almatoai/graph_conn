@@ -579,10 +579,8 @@ defmodule GraphConn.ConnectionManagerTest do
       # clock precision actually makes. The already-expired clause names the slip in the other
       # direction; this one reaches `Process.send_after/3` with a delay it refuses, inside the
       # manager, under `:one_for_all`.
-      Mock.put_expires_at(
-        "action_invoker",
-        DateTime.utc_now() |> DateTime.to_unix(:microsecond)
-      )
+      expires_at = DateTime.utc_now() |> DateTime.to_unix(:microsecond)
+      Mock.put_expires_at("action_invoker", expires_at)
 
       assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
       assert_receive {:conn_status_changed, :got_api_versions}, 15_000
@@ -604,10 +602,8 @@ defmodule GraphConn.ConnectionManagerTest do
       # The slip DOWNWARD has always had a warning naming the likely cause. This one is clamped
       # rather than raising, so the client stays up either way -- without a warning of its own a
       # Graph sending microseconds would look exactly like one that works.
-      Mock.put_expires_at(
-        "action_invoker",
-        DateTime.utc_now() |> DateTime.to_unix(:microsecond)
-      )
+      expires_at = DateTime.utc_now() |> DateTime.to_unix(:microsecond)
+      Mock.put_expires_at("action_invoker", expires_at)
 
       assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
       assert_receive {:conn_status_changed, :got_api_versions}, 15_000

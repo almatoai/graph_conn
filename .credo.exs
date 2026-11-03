@@ -8,8 +8,9 @@
       },
       plugins: [],
       # Custom checks under test/support/credo_checks/ are compiled into the
-      # test build via `_elixirc_paths` in mix.exs, so they're already on the
-      # code path when credo runs under MIX_ENV=test. No `requires:` needed.
+      # dev and test builds via `_elixirc_paths`, and the `credo` alias in
+      # mix.exs compiles first, so they're current on the code path. No
+      # `requires:` needed.
       requires: [],
       strict: true,
       parse_timeout: 5000,
