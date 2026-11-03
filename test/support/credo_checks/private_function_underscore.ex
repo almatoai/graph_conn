@@ -8,7 +8,7 @@ defmodule GraphConn.CredoChecks.PrivateFunctionUnderscore do
     base_priority: :high,
     category: :readability,
     explanations: [
-      check: "Private functions must start with `_` (e.g. `defp _build_request/2`)."
+      check: "Private functions must start with `_` (e.g. `defp _open_upstream/2`)."
     ]
 
   alias Credo.IssueMeta
@@ -21,14 +21,14 @@ defmodule GraphConn.CredoChecks.PrivateFunctionUnderscore do
 
   # Unguarded clause: defp foo(args), do: ...
   # Guard-wrapped clauses use the {:when, ...} shape handled below.
-  defp _traverse({:defp, meta, [{name, _, _args} | _]} = ast, issues, issue_meta)
+  defp _traverse({:defp, meta, [{name, _name_meta, _args} | _body]} = ast, issues, issue_meta)
        when is_atom(name) and name != :when do
     _check_name(ast, issues, issue_meta, meta, name)
   end
 
   # Guarded clause: defp foo(args) when guard, do: ...
   defp _traverse(
-         {:defp, meta, [{:when, _, [{name, _, _args} | _]} | _]} = ast,
+         {:defp, meta, [{:when, _when_meta, [{name, _name_meta, _args} | _guards]} | _body]} = ast,
          issues,
          issue_meta
        )

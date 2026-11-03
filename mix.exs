@@ -124,7 +124,9 @@ defmodule GraphConn.MixProject do
         "cmd mix coveralls.html --exclude feature",
         "cmd mix test --only feature",
         "dialyzer"
-      ]
+      ],
+      # credo loads the custom checks from the build without compiling it, so it could run stale ones
+      credo: ["compile", "credo"]
     ]
   end
 
