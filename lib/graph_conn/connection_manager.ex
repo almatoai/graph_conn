@@ -155,7 +155,9 @@ defmodule GraphConn.ConnectionManager do
           | {:error, {:rate_limited, retry_after_ms :: non_neg_integer()}}
           | {:error, reason :: term()}
   def execute(base_name, target_api, %Request{} = request, opts \\ []) do
-    case _get_version(base_name, target_api) do
+    base_name
+    |> _get_version(target_api)
+    |> case do
       {:ok, %{protocol: ""}} -> _execute_rest(base_name, target_api, request, opts)
       {:ok, _} -> _execute_ws(base_name, target_api, request)
       other -> other
@@ -438,6 +440,11 @@ defmodule GraphConn.ConnectionManager do
 
     Backoff.next_delay(retry_in, floor_ms, cap, spread)
   end
+
+  @doc false
+  @spec __initial_retry__() :: pos_integer()
+  def __initial_retry__,
+    do: _initial()
 
   ## Helper functions
 
@@ -764,7 +771,9 @@ defmodule GraphConn.ConnectionManager do
     [{:config, config}] = :ets.lookup(state.base_name, :config)
 
     state =
-      case GraphRestCalls.get_versions(state.base_name, config) do
+      state.base_name
+      |> GraphRestCalls.get_versions(config)
+      |> case do
         {:ok, versions} ->
           _update_ets(state.base_name, :versions, versions)
           _status_changed(:got_api_versions, state)

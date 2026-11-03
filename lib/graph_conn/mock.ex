@@ -135,6 +135,7 @@ defmodule GraphConn.Mock do
   end
 
   @versions_key :versions
+  @action_fetch_key :action_fetch
   @ws_upgrade_key :ws_upgrade
   @request_deny_key :request_deny
   @submit_drop_key :submit_drop
@@ -181,8 +182,13 @@ defmodule GraphConn.Mock do
   Scoped to one client on purpose: a blanket reset would disarm whatever a concurrently
   running test had armed for a client of its own.
   """
-  @spec clear_rate_limit(key :: String.t() | :versions | {:ws_upgrade | :submit_drop, String.t()}) ::
-          :ok
+  @spec clear_rate_limit(
+          key ::
+            String.t()
+            | :versions
+            | {:ws_upgrade | :submit_drop, String.t()}
+            | {:action_fetch, token :: String.t(), path :: String.t()}
+        ) :: :ok
   def clear_rate_limit(key) do
     true = :ets.delete(__MODULE__, key)
     :ok
@@ -199,6 +205,26 @@ defmodule GraphConn.Mock do
           {:ok, retry_after_seconds :: pos_integer() | :no_hint} | :error
   def take_versions_rate_limit,
     do: _take_rate_limit(@versions_key)
+
+  @doc """
+  Arms the mock to fail the next `times` fetches of the action api's `path` (`"capabilities"` or
+  `"applicabilities"`) made with `token`: `{:status, status, body}` answers with that status and
+  body, `{:hang, hang_ms}` holds the reply for `hang_ms` so the client times out first.
+  """
+  @spec fail_action_fetch(
+          token :: String.t(),
+          path :: String.t(),
+          times :: pos_integer(),
+          failure :: {:status, pos_integer(), body :: String.t()} | {:hang, pos_integer()}
+        ) :: :ok
+  def fail_action_fetch(token, path, times, failure),
+    do: _arm({@action_fetch_key, token, path}, times, failure)
+
+  @doc false
+  @spec take_action_fetch_failure(token :: String.t() | nil, path :: String.t()) ::
+          {:ok, {:status, pos_integer(), body :: String.t()} | {:hang, pos_integer()}} | :error
+  def take_action_fetch_failure(token, path),
+    do: _take_rate_limit({@action_fetch_key, token, path})
 
   @doc """
   Arms the mock to answer the next `times` `action-ws` upgrades from `client_type` with `status`

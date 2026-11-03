@@ -2,6 +2,20 @@
 
 ⚠️ **Breaking changes** in [1.11.0](#1110), [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
 
+# 1.11.3
+
+## Fix
+
+- An action invoker whose capabilities or applicabilities fetch fails logs a warning and retries on
+  the backoff curve instead of crashing its connection, and `reconfigure/0` returns
+  `{:error, reason}` and keeps what it had.
+
+## Enhancement
+
+- `GraphConn.Mock.fail_action_fetch/4` fails a client's next capabilities or applicabilities
+  fetches, and `GraphConn.Test.MockServer.valid_isolated_invoker_credentials/0` gives a test its
+  own invoker identity to arm it against.
+
 # 1.11.2
 
 ## Fix

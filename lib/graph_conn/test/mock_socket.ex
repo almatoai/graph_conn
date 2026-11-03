@@ -49,6 +49,9 @@ if Code.ensure_loaded?(Plug.Cowboy) do
     defp _registry_role("standalone"),
       do: "invoker"
 
+    defp _registry_role("isolated"),
+      do: "invoker"
+
     defp _registry_role(client_type),
       do: client_type
 

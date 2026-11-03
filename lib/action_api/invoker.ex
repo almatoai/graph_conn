@@ -80,10 +80,11 @@ defmodule GraphConn.ActionApi.Invoker do
 
     @type t() :: %__MODULE__{
             capabilities: [any()],
-            status: GraphConn.ActionApi.Invoker.status()
+            status: GraphConn.ActionApi.Invoker.status(),
+            fetch_retry: pid() | nil
           }
 
-    defstruct capabilities: [], status: :initialized
+    defstruct capabilities: [], status: :initialized, fetch_retry: nil
   end
 
   @doc false
@@ -144,40 +145,38 @@ defmodule GraphConn.ActionApi.Invoker do
       def status,
         do: GraphConn.status(__MODULE__)
 
-      # Invokes `fun` function yielding client state to it.
-      defp _with_state(fun) do
-        {response, new_state} =
-          __MODULE__
-          |> GraphConn.get_client_state()
-          |> fun.()
-
-        :ok = GraphConn.put_client_state(__MODULE__, new_state)
-        response
-      end
+      # Applies `fun` to the client state in one step, so concurrent writers cannot lose an update.
+      defp _with_state(fun),
+        do: GraphConn.ClientState.update_state(__MODULE__, fun)
 
       @impl GraphConn
       @doc false
-      # get capabilities and applicabilities only when invoker was just :initialized
-      # and connection status is :ready now.
-      def on_status_change(:ready, %InvokerState{status: :initialized} = state) do
-        %{}
-        |> _inject_capabilities()
-        |> _inject_applicabilities()
-        |> _open_ws_connection()
+      # Capabilities and applicabilities are fetched only while the invoker is still :initialized,
+      # and never in the calling connection manager: a 401 there would make it call itself.
+      def on_status_change(:ready, %InvokerState{status: :initialized}) do
+        fetcher = _start_fetcher()
+        claim = fn %InvokerState{} = state -> _claim_fetch(state, fetcher) end
+
+        claim
+        |> _with_state()
         |> case do
-          %{capabilities: _, applicabilities: _} = token ->
-            new_state =
-              state
-              |> Map.put(:status, :ready)
-              |> Map.merge(token)
-
-            _with_state(fn
-              %InvokerState{} -> {:ok, new_state}
-            end)
-
-            # question is what shall we do if we couldn't fetch both capabilities and applicabilities?
-            # if we leave it unmatched Invoker conn will crash and will be restarted...
+          :claimed -> send(fetcher, :fetch)
+          :not_needed -> send(fetcher, :cancel)
         end
+      end
+
+      def on_status_change(new_status, %InvokerState{fetch_retry: retry})
+          when is_pid(retry) do
+        message = "Cancelling the pending fetch, status is #{inspect(new_status)}"
+        Logger.debug("[ActionInvoker] #{message}")
+
+        release = fn %InvokerState{} = state ->
+          {state.fetch_retry, %InvokerState{state | fetch_retry: nil}}
+        end
+
+        release
+        |> _with_state()
+        |> _cancel_fetch()
       end
 
       def on_status_change(new_status, %InvokerState{status: current_status} = state) do
@@ -333,22 +332,24 @@ defmodule GraphConn.ActionApi.Invoker do
         end
       end
 
+      @doc """
+      Fetches capabilities and applicabilities again. When either fetch fails the invoker keeps
+      the ones it had and the reason is returned.
+      """
+      @spec reconfigure() :: :ok | {:error, {path :: String.t(), reason :: term()}}
       def reconfigure do
         Logger.info("[ActionInvoker] Reconfiguring...")
 
-        _with_state(fn
-          %InvokerState{} = state ->
-            new_state =
-              %{}
-              |> _inject_capabilities()
-              |> _inject_applicabilities()
-              |> case do
-                %{capabilities: _, applicabilities: _} = token ->
-                  Map.merge(state, token)
-              end
+        _fetch_token()
+        |> case do
+          {:ok, token} ->
+            _with_state(fn %InvokerState{} = state -> {:ok, Map.merge(state, token)} end)
 
-            {:ok, new_state}
-        end)
+          {:error, reason} = error ->
+            message = "#{inspect(__MODULE__)} could not reconfigure: #{inspect(reason)}"
+            Logger.warning("[ActionInvoker] #{message}")
+            error
+        end
       end
 
       @doc """
@@ -578,44 +579,123 @@ defmodule GraphConn.ActionApi.Invoker do
       defp _decode_result(result),
         do: result
 
-      @spec _inject_capabilities(state :: map()) :: map()
-      defp _inject_capabilities(%{} = token) do
-        request = %GraphConn.Request{path: "capabilities"}
+      @spec _fetch_token() ::
+              {:ok, %{capabilities: map(), applicabilities: map()}}
+              | {:error, {path :: String.t(), reason :: term()}}
+      defp _fetch_token do
+        with {:ok, capabilities} <- _fetch("capabilities"),
+             {:ok, applicabilities} <- _fetch("applicabilities"),
+             do: {:ok, %{capabilities: capabilities, applicabilities: applicabilities}}
+      end
 
-        case GraphConn.execute(__MODULE__, :action, request) do
-          {:ok, %GraphConn.Response{code: 200, body: body}} ->
-            Map.put(token, :capabilities, body)
-
-          other ->
-            Logger.error("[ActionInvoker] Can't get capabilities: #{inspect(other)}")
-            token
+      defp _fetch(path) do
+        __MODULE__
+        |> GraphConn.execute(:action, %GraphConn.Request{path: path})
+        |> case do
+          {:ok, %GraphConn.Response{code: 200, body: body}} -> {:ok, body}
+          # The body is left out: an error page can be large and says nothing the status does not.
+          {:ok, %GraphConn.Response{code: code}} -> {:error, {path, {:status, code}}}
+          {:error, error} -> {:error, {path, error}}
         end
       end
 
-      @spec _inject_applicabilities(state :: map()) :: map()
-      defp _inject_applicabilities(%{capabilities: _} = token) do
-        request = %GraphConn.Request{path: "applicabilities"}
+      # A live pending fetch owns it; a second one would race it.
+      defp _claim_fetch(%InvokerState{status: :initialized, fetch_retry: retry} = state, fetcher) do
+        if is_pid(retry) and Process.alive?(retry),
+          do: {:not_needed, state},
+          else: {:claimed, %InvokerState{state | fetch_retry: fetcher}}
+      end
 
-        case GraphConn.execute(__MODULE__, :action, request) do
-          {:ok, %GraphConn.Response{code: 200, body: body}} ->
-            Map.put(token, :applicabilities, body)
+      defp _claim_fetch(%InvokerState{} = state, _fetcher),
+        do: {:not_needed, state}
 
-          other ->
-            Logger.error("[ActionInvoker] Can't get applicabilities: #{inspect(other)}")
-            token
+      defp _cancel_fetch(nil),
+        do: :ok
+
+      defp _cancel_fetch(retry) do
+        send(retry, :cancel)
+        :ok
+      end
+
+      # Only the fetch `retry` names may finish.
+      defp _become_ready(token, retry) do
+        finish = fn
+          %InvokerState{status: :initialized, fetch_retry: ^retry} = state ->
+            new_state =
+              state
+              |> Map.merge(token)
+              |> Map.merge(%{status: :ready, fetch_retry: nil})
+
+            {:ready, new_state}
+
+          %InvokerState{} = state ->
+            {:superseded, state}
+        end
+
+        finish
+        |> _with_state()
+        |> case do
+          :ready -> GraphConn.open_ws_connection(__MODULE__, :"action-ws")
+          :superseded -> :ok
         end
       end
 
-      defp _inject_applicabilities(%{} = token),
-        do: token
+      # Monitors rather than links the caller, so nothing the fetch does can take the connection
+      # manager down, yet it stops when the manager does. It fetches only once claimed.
+      defp _start_fetcher do
+        manager = self()
 
-      defp _open_ws_connection(%{applicabilities: _} = token) do
-        :ok = GraphConn.open_ws_connection(__MODULE__, :"action-ws")
-        token
+        fetcher = fn ->
+          manager_ref = Process.monitor(manager)
+          retry_in = GraphConn.ConnectionManager.__initial_retry__()
+
+          receive do
+            :fetch -> _await_fetch(0, retry_in, manager_ref)
+            :cancel -> :ok
+            {:DOWN, ^manager_ref, :process, _manager, _reason} -> :ok
+          end
+        end
+
+        spawn(fetcher)
       end
 
-      defp _open_ws_connection(%{} = token),
-        do: token
+      defp _await_fetch(delay, retry_in, manager_ref) do
+        receive do
+          :cancel -> :ok
+          {:DOWN, ^manager_ref, :process, _manager, _reason} -> :ok
+        after
+          delay -> _attempt_fetch(retry_in, manager_ref)
+        end
+      end
+
+      defp _attempt_fetch(retry_in, manager_ref) do
+        retry = self()
+
+        with {:ok, token} <- _safely(&_fetch_token/0),
+             :ok <- _safely(fn -> _become_ready(token, retry) end) do
+          :ok
+        else
+          {:error, reason} -> _retry_fetch_later(retry_in, reason, manager_ref)
+        end
+      end
+
+      # An exit or raise is one more failed attempt, not the end of the retries.
+      defp _safely(fun) do
+        fun.()
+      catch
+        kind, reason -> {:error, {kind, reason}}
+      end
+
+      defp _retry_fetch_later(retry_in, reason, manager_ref) do
+        {delay, next_retry_in} = GraphConn.ConnectionManager.__next_retry__(retry_in, 0)
+
+        message =
+          "#{inspect(__MODULE__)} could not fetch #{inspect(reason)}, retrying in #{delay}ms"
+
+        Logger.warning("[ActionInvoker] #{message}")
+
+        _await_fetch(delay, next_retry_in, manager_ref)
+      end
 
       @doc """
       Default handler for `configChanged` messages from action-ws. Override in

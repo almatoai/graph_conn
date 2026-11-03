@@ -42,6 +42,22 @@ defmodule GraphConn.ClientState do
     :ok
   end
 
+  # Replaces the stored state with the one `fun` returns for it and returns `fun`'s reply, in one
+  # step. `fun` runs inside this process, so it must not call ClientState or the connection
+  # manager; whatever it raises, throws or exits with fails the caller, not this process.
+  @doc false
+  @spec update_state(base_name :: atom(), fun :: (map() -> {reply, map()})) :: reply
+        when reply: term()
+  def update_state(base_name, fun) do
+    base_name
+    |> _name()
+    |> GenServer.call({:update_state, fun})
+    |> case do
+      {:updated, reply} -> reply
+      {:failed, kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
+    end
+  end
+
   @impl GenServer
   def init(state),
     do: {:ok, state}
@@ -49,6 +65,13 @@ defmodule GraphConn.ClientState do
   @impl GenServer
   def handle_call(:get_state, _from, state),
     do: {:reply, state, state}
+
+  def handle_call({:update_state, fun}, _from, state) do
+    {reply, new_state} = fun.(state)
+    {:reply, {:updated, reply}, new_state}
+  catch
+    kind, reason -> {:reply, {:failed, kind, reason, __STACKTRACE__}, state}
+  end
 
   @impl GenServer
   def handle_cast({:put_state, new_state}, _state),
