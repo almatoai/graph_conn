@@ -45,6 +45,9 @@ defmodule GraphConn.ActionApi.Request do
 
   @doc false
   @spec _calculate_id(build_params()) :: String.t()
+  # Not a secret: a deterministic correlation key, so content-equal requests share an id and the
+  # request registry groups them under it on purpose.
+  # sobelow_skip ["Crypto.WeakHash"]
   def _calculate_id(payload) do
     term = {payload.ticket_id, payload.handler, payload.capability, payload.params}
 

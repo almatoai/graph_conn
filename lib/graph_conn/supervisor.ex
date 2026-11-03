@@ -36,7 +36,7 @@ defmodule GraphConn.Supervisor do
       {GraphConn.ClientState, [base_name, internal_state]},
       {GraphConn.WsConnections, [base_name]},
       {Finch,
-       name: Module.concat(base_name, Finch),
+       name: finch_name(base_name),
        pools: %{
          default: __pool_opts__()
        }},
@@ -45,7 +45,16 @@ defmodule GraphConn.Supervisor do
     |> Supervisor.init(strategy: :one_for_all)
   end
 
+  # Named after the client module with a fixed suffix: one atom per client, never input-driven.
+  # sobelow_skip ["DOS.ModuleConcat"]
   defp _name(base_name), do: Module.concat(base_name, Supervisor)
+
+  @doc false
+  @spec finch_name(base_name :: atom()) :: module()
+  # Named after the client module with a fixed suffix: one atom per client, never input-driven.
+  # sobelow_skip ["DOS.ModuleConcat"]
+  def finch_name(base_name),
+    do: Module.concat(base_name, Finch)
 
   @doc false
   @spec __pool_opts__ :: Keyword.t()

@@ -5,6 +5,8 @@ defmodule GraphConn.WsConnections do
 
   @doc false
   @spec _name(base_name :: atom()) :: module()
+  # Named after the client module with a fixed suffix: one atom per client, never input-driven.
+  # sobelow_skip ["DOS.ModuleConcat"]
   def _name(base_name),
     do: Module.concat(base_name, WsConnections)
 

@@ -5,6 +5,8 @@ defmodule GraphConn.ClientState do
 
   use GenServer
 
+  # Named after the client module with a fixed suffix: one atom per client, never input-driven.
+  # sobelow_skip ["DOS.ModuleConcat"]
   defp _name(base_name),
     do: Module.concat(base_name, ClientState)
 

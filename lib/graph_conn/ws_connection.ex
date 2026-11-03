@@ -33,6 +33,9 @@ defmodule GraphConn.WsConnection do
                 ~w(conn_pid tunnel_ref stream_ref client_hello)a ++ [token_requests: %{}]
   end
 
+  # The client module plus an api the consuming code opened (`:"action-ws"`, `:"events-ws"`):
+  # a bounded set of atoms, chosen in code rather than by remote input.
+  # sobelow_skip ["DOS.ModuleConcat"]
   defp _name(base_name, api) do
     base_name
     |> Module.concat(api)

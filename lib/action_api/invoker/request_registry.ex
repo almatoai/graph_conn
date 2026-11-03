@@ -10,6 +10,8 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
 
   @doc "Returns the registered process name of the request registry for `base_name`."
   @spec name(base_name :: atom()) :: module()
+  # Named after the client module with a fixed suffix: one atom per client, never input-driven.
+  # sobelow_skip ["DOS.ModuleConcat"]
   def name(base_name),
     do: Module.concat(base_name, RequestRegistry)
 

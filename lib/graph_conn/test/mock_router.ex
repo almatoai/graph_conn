@@ -357,8 +357,8 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       }
 
       conn
-      |> Plug.Conn.put_resp_content_type("application/json")
       |> _put_retry_after(retry_after_seconds)
+      |> Plug.Conn.put_resp_content_type("application/json")
       |> Plug.Conn.send_resp(429, Jason.encode!(body))
     end
 
