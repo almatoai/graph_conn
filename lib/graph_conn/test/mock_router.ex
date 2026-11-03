@@ -19,6 +19,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
     @valid_token "action_invoker"
     @valid_handler_token "action_handler"
     @valid_standalone_token "action_standalone"
+    @valid_isolated_token "action_isolated"
 
     get "/api/version" do
       GraphConn.Mock.take_versions_rate_limit()
@@ -67,11 +68,11 @@ if Code.ensure_loaded?(Plug.Cowboy) do
     end
 
     get "/api/:_/action/capabilities" do
-      _success(conn, GraphConn.Mock.get_capabilities())
+      _unless_fetch_fails(conn, "capabilities", &Mock.get_capabilities/0)
     end
 
     get "/api/:_/action/applicabilities" do
-      _success(conn, GraphConn.Mock.get_applicabilities())
+      _unless_fetch_fails(conn, "applicabilities", &Mock.get_applicabilities/0)
     end
 
     # Echos back collected map of request headers
@@ -106,11 +107,17 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         |> Enum.map(fn {key, val} -> {to_string(key), val} end)
         |> Enum.into(%{})
 
+      isolated_credentials =
+        MockServer.valid_isolated_invoker_credentials()
+        |> Enum.map(fn {key, val} -> {to_string(key), val} end)
+        |> Enum.into(%{})
+
       case conn.params do
         ^config_credentials -> _success(conn, _credentials(@valid_token))
         ^handler_credentials -> _success(conn, _credentials(@valid_handler_token))
         ^event_handler_credentials -> _success(conn, _credentials(@valid_handler_token))
         ^standalone_credentials -> _success(conn, _credentials(@valid_standalone_token))
+        ^isolated_credentials -> _success(conn, _credentials(@valid_isolated_token))
         _unknown_credentials -> _unauthorized(conn)
       end
     end
@@ -287,7 +294,32 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         @valid_token -> fun.()
         @valid_handler_token -> fun.()
         @valid_standalone_token -> fun.()
+        @valid_isolated_token -> fun.()
         _ -> _unauthorized(conn)
+      end
+    end
+
+    defp _unless_fetch_fails(conn, path, fetch) do
+      base_token =
+        "authorization"
+        |> :proplists.get_value(conn.req_headers)
+        |> _bearer_base_token()
+
+      base_token
+      |> Mock.take_action_fetch_failure(path)
+      |> case do
+        {:ok, {:status, status, body}} ->
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.send_resp(status, body)
+
+        # Held past the client's own receive timeout, then answered to nobody.
+        {:ok, {:hang, hang_ms}} ->
+          Process.sleep(hang_ms)
+          _success(conn, fetch)
+
+        :error ->
+          _success(conn, fetch)
       end
     end
 
@@ -296,6 +328,11 @@ if Code.ensure_loaded?(Plug.Cowboy) do
 
     defp _bearer_base_token(_authorization),
       do: nil
+
+    defp _success(conn, fetch) when is_function(fetch, 0) do
+      body = fetch.()
+      _success(conn, body)
+    end
 
     defp _success(conn, body) when is_binary(body) do
       conn

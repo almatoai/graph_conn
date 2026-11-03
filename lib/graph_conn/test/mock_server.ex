@@ -103,6 +103,21 @@ if Code.ensure_loaded?(Plug.Cowboy) do
     end
 
     @doc """
+    Returns credentials for an action invoker that a test starts on its own.
+
+    Its own token, so a fault armed for it cannot reach the shared invokers.
+    """
+    @spec valid_isolated_invoker_credentials :: Keyword.t()
+    def valid_isolated_invoker_credentials do
+      [
+        client_id: "isolated_invoker",
+        client_secret: "isolated_invoker_secret",
+        username: "isolated_invoker_username",
+        password: "isolated_invoker_password"
+      ]
+    end
+
+    @doc """
     Returns credentials that Mock server will accept as valid for any connection
     that will invoke REST only commands or action-ws api in a invoker role.
     """
