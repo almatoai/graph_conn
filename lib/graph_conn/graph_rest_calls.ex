@@ -66,9 +66,6 @@ defmodule GraphConn.GraphRestCalls do
     end
   end
 
-  # we expect small and finite number of apis in versions response,
-  # so it's safe to convert them to atoms
-  # sobelow_skip ["DOS.StringToAtom"]
   @spec _get_versions(Request.t(), base_name :: module(), config :: Keyword.t()) ::
           {:ok, versions()} | {:error, any()}
   defp _get_versions(%Request{} = request, base_name, config) do
@@ -81,7 +78,7 @@ defmodule GraphConn.GraphRestCalls do
           |> Jason.decode!()
           |> Enum.map(fn {key,
                           %{"endpoint" => endpoint, "protocols" => protocol, "version" => version}} ->
-            {String.to_atom(key), %{path: endpoint, protocol: protocol, subprotocol: version}}
+            {_api_atom(key), %{path: endpoint, protocol: protocol, subprotocol: version}}
           end)
           |> Enum.into(%{})
 
@@ -95,6 +92,11 @@ defmodule GraphConn.GraphRestCalls do
         {:error, other}
     end
   end
+
+  # The Graph's versions response names a small, finite set of apis, so they are safe as atoms.
+  # sobelow_skip ["DOS.StringToAtom"]
+  defp _api_atom(api_name),
+    do: String.to_atom(api_name)
 
   @doc """
   Gets token for given `config`.
@@ -256,11 +258,12 @@ defmodule GraphConn.GraphRestCalls do
     end)
 
     mono_start = System.monotonic_time()
+    finch = GraphConn.Supervisor.finch_name(base_name)
 
     {_, response} =
       request.method
       |> Finch.build(uri, headers, body)
-      |> Finch.request(Module.concat(base_name, Finch), receive_timeout: timeout)
+      |> Finch.request(finch, receive_timeout: timeout)
 
     spawn(fn ->
       durations = Instrumenter.durations(mono_start)

@@ -154,6 +154,9 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       {:ok, state}
     end
 
+    # Test-only mock fed by the suite's own clients, whose payload keys are arbitrary, so
+    # `:atoms!` would raise.
+    # sobelow_skip ["DOS.DecodeAtoms"]
     def websocket_handle({:text, incoming_message}, state) do
       incoming_message
       |> Jason.decode!(keys: :atoms)

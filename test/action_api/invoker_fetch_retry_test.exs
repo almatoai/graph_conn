@@ -290,7 +290,7 @@ defmodule GraphConn.ActionApi.InvokerFetchRetryTest do
   end
 
   defp _rest_pools do
-    finch = Module.concat(IsolatedInvoker, Finch)
+    finch = GraphConn.Supervisor.finch_name(IsolatedInvoker)
     pools = Registry.select(finch, [{{:_, :"$1", :_}, [], [:"$1"]}])
     assert [_pool | _others] = pools
     pools

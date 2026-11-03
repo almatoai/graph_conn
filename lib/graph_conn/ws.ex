@@ -48,8 +48,6 @@ defmodule GraphConn.WS do
     end
   end
 
-  # transport is set in config file so it's safe to convert it to atom
-  # sobelow_skip ["DOS.StringToAtom"]
   defp _proxy_config do
     :graph_conn
     |> Application.get_env(:proxy)
@@ -59,7 +57,7 @@ defmodule GraphConn.WS do
 
       proxy_config ->
         address = proxy_config |> Keyword.fetch!(:address) |> String.to_charlist()
-        transport = proxy_config |> Keyword.get(:transport, "tcp") |> String.to_atom()
+        transport = proxy_config |> Keyword.get(:transport, "tcp") |> _transport_atom()
         secure? = Keyword.get(proxy_config, :insecure, "false") == "false"
 
         tls_opts =
@@ -78,6 +76,11 @@ defmodule GraphConn.WS do
         |> Enum.into(%{})
     end
   end
+
+  # The proxy transport comes from the application config, so it is safe as an atom.
+  # sobelow_skip ["DOS.StringToAtom"]
+  defp _transport_atom(transport),
+    do: String.to_atom(transport)
 
   defp _connect(host, port, connect_opts) do
     Logger.info("[GraphConn.WS] Connecting to #{host}:#{port} ...")

@@ -1,9 +1,8 @@
 [
   verbose: false,
   private: false,
-  # skip: true honors per-function `# sobelow_skip ["Rule"]` annotations.
-  # Used for the two known-safe String.to_atom call sites (server-supplied
-  # API names + config-supplied proxy transport).
+  # skip: true honors per-function `# sobelow_skip ["Rule"]` annotations. Each
+  # sits on the smallest function holding the flagged call, with its reason.
   skip: true,
   exit: "low",
   format: "txt",
@@ -11,8 +10,8 @@
   threshold: "low",
   # Config.HTTPS — graph_conn is a client library plus a small Plug+Cowboy
   # test endpoint. It never terminates TLS itself; production callers run
-  # behind TLS-terminating ingress. Phoenix-specific checks (XSS.*,
-  # Config.CSRFRoute) don't apply and are skipped silently with no router.
+  # behind TLS-terminating ingress. Router-based checks (Config.CSRFRoute)
+  # are skipped with no router; XSS.SendResp runs on the mock router.
   ignore: ["Config.HTTPS"],
   ignore_files: []
 ]
