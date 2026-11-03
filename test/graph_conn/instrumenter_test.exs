@@ -16,12 +16,11 @@ defmodule GraphConn.InstrumenterTest do
       events = [[:graph_conn, :rest], [:graph_conn, :ws_upgrade], [:graph_conn, :ws_sent_bytes]]
       test_pid = self()
 
-      :telemetry.attach_many(
-        context.test,
-        events,
-        fn event, measurements, _data, _config -> send(test_pid, {event, measurements}) end,
-        nil
-      )
+      forward = fn event, measurements, _data, _config ->
+        send(test_pid, {event, measurements})
+      end
+
+      :telemetry.attach_many(context.test, events, forward, nil)
 
       on_exit(fn -> :telemetry.detach(context.test) end)
 
@@ -47,12 +46,11 @@ defmodule GraphConn.InstrumenterTest do
       events = [[:graph_conn, :ws_upgrade], [:graph_conn, :ws_sent_bytes]]
       test_pid = self()
 
-      :telemetry.attach_many(
-        context.test,
-        events,
-        fn event, measurements, _data, _config -> send(test_pid, {event, measurements}) end,
-        nil
-      )
+      forward = fn event, measurements, _data, _config ->
+        send(test_pid, {event, measurements})
+      end
+
+      :telemetry.attach_many(context.test, events, forward, nil)
 
       on_exit(fn -> :telemetry.detach(context.test) end)
 

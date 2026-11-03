@@ -94,7 +94,8 @@ defmodule GraphConn.CredoChecks.NoPipeInsideCall do
   defp _is_pipe(_ast), do: false
 
   defp _issue(issue_meta, {:|>, meta, _operands}) do
-    format_issue(issue_meta,
+    issue_meta
+    |> format_issue(
       message: "Pipe `|>` used directly as function-call argument",
       line_no: meta[:line]
     )

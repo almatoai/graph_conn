@@ -20,7 +20,7 @@ defmodule GraphConn.ActionApi.FrameLimitTest do
     test "is cached as the error, so a redelivery never carries it" do
       {:error, req_id, _error} = _execute_oversized()
 
-      assert {:ok, cached} = Cachex.get(TestActionHandler._request_cache_name(), req_id)
+      assert {:ok, cached} = _cached(req_id)
       assert %{"error" => %{"action_status" => 59}} = Jason.decode!(cached)
     end
   end
@@ -54,7 +54,7 @@ defmodule GraphConn.ActionApi.FrameLimitTest do
       "payload" => String.duplicate("a", @handler_limit)
     }
 
-    ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)
+    _execute_new("ExecuteCommand", params)
   end
 
   defp _oversized_result_request(req_id) do
@@ -75,6 +75,21 @@ defmodule GraphConn.ActionApi.FrameLimitTest do
     assert_receive frame when is_binary(frame)
     %{"type" => "sendActionResult", "result" => result} = Jason.decode!(frame)
     Jason.decode!(result)
+  end
+
+  defp _execute_new(capability, params, opts \\ []) do
+    req_id = UUID.uuid4()
+    _execute(req_id, capability, params, opts)
+  end
+
+  defp _execute(req_id, capability, params, opts) do
+    ah_id = _ah_id()
+    ActionInvoker.execute(req_id, ah_id, capability, params, opts)
+  end
+
+  defp _cached(req_id) do
+    TestActionHandler._request_cache_name()
+    |> Cachex.get(req_id)
   end
 
   defp _ah_id do

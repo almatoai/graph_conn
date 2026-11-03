@@ -26,10 +26,12 @@ defmodule GraphConnTest do
       auth_config = Keyword.put(config[:auth], :credentials, credentials)
       config = Keyword.put(config, :auth, auth_config)
 
-      assert capture_log(fn ->
-               assert {:ok, pid} = _start_connection(config)
-               assert_receive {:EXIT, ^pid, :shutdown}
-             end) =~ ~r/\(stop\) \:wrong_credentials/
+      logged = fn ->
+        assert {:ok, pid} = _start_connection(config)
+        assert_receive {:EXIT, ^pid, :shutdown}
+      end
+
+      assert capture_log(logged) =~ ~r/\(stop\) \:wrong_credentials/
     end
 
     test "can just get versions with no credentials in config" do
@@ -234,9 +236,8 @@ defmodule GraphConnTest do
       refute Process.alive?(gun_conn_pid)
 
       # send message while process is down
-      assert capture_log(fn ->
-               :ok = TestConn.execute(:"action-ws", %Request{})
-             end) =~ ~r/WS connection is down, waiting for it to come back/
+      logged = fn -> :ok = TestConn.execute(:"action-ws", %Request{}) end
+      assert capture_log(logged) =~ ~r/WS connection is down, waiting for it to come back/
 
       assert_receive {:conn_status_changed, :"action-ws", :ready}
 
@@ -251,7 +252,9 @@ defmodule GraphConnTest do
 
   # it takes some time for pid to die, so we need to retry
   defp _start_connection(config) do
-    case TestConn.start_supervisor(config, %{forward_to: self()}) do
+    config
+    |> TestConn.start_supervisor(%{forward_to: self()})
+    |> case do
       {:ok, pid} ->
         assert Process.alive?(pid)
         {:ok, pid}

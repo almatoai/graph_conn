@@ -65,9 +65,8 @@ defmodule GraphConn.RetryAfter do
         Logger.warning("[GraphConn.RetryAfter] 429 received with no retry-after header")
 
       value ->
-        Logger.warning(
-          "[GraphConn.RetryAfter] 429 received with an unusable retry-after #{inspect(value)}"
-        )
+        "[GraphConn.RetryAfter] 429 received with an unusable retry-after #{inspect(value)}"
+        |> Logger.warning()
     end
 
     {:error, {:rate_limited, 0}}
@@ -113,10 +112,9 @@ defmodule GraphConn.RetryAfter do
   # Logs the advertised magnitude rather than the clamped one: a raw value in the billions is
   # the only signal that a producer started sending a timestamp instead of delay-seconds.
   defp _bounded_wait(wait_in_ms) when wait_in_ms > @max_wait_in_ms do
-    Logger.warning(
-      "retry-after advertised #{wait_in_ms}ms, past the #{@max_wait_in_ms}ms this client will " <>
-        "wait; a value this large means the header is no longer delay-seconds."
-    )
+    ("retry-after advertised #{wait_in_ms}ms, past the #{@max_wait_in_ms}ms this client will " <>
+       "wait; a value this large means the header is no longer delay-seconds.")
+    |> Logger.warning()
 
     {:ok, @max_wait_in_ms}
   end

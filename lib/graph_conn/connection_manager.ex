@@ -247,7 +247,9 @@ defmodule GraphConn.ConnectionManager do
   end
 
   defp _execute_rest(base_name, target_api, request, opts, attempt \\ 1) do
-    case GraphRestCalls.execute(base_name, target_api, request, opts) do
+    base_name
+    |> GraphRestCalls.execute(target_api, request, opts)
+    |> case do
       {:ok, %Response{code: 401}} = result ->
         # Don't refresh token if request is made on behalf of another entity or if we've already
         # tried refreshing once, to avoid infinite loop in case of other auth issues.
@@ -318,8 +320,12 @@ defmodule GraphConn.ConnectionManager do
     state.base_name
     |> _hold_until(target_api)
     |> case do
-      nil -> _open_ws(state, target_api, _initial(), :reopen_ws)
-      reopen_at -> {:reply, {:error, {:rate_limited, _retry_after_ms(reopen_at)}}, state}
+      nil ->
+        retry_in = _initial()
+        _open_ws(state, target_api, retry_in, :reopen_ws)
+
+      reopen_at ->
+        {:reply, {:error, {:rate_limited, _retry_after_ms(reopen_at)}}, state}
     end
   end
 
@@ -457,7 +463,9 @@ defmodule GraphConn.ConnectionManager do
           reopen_tag :: :reopen_ws | :reopen_dropped_ws
         ) :: {:reply, term(), State.t()}
   defp _open_ws(%State{} = state, target_api, retry_in, reopen_tag) do
-    case _get_version(state.base_name, target_api) do
+    state.base_name
+    |> _get_version(target_api)
+    |> case do
       {:ok, version} ->
         _start_ws_connection(state, target_api, version, retry_in, reopen_tag)
 
@@ -509,8 +517,10 @@ defmodule GraphConn.ConnectionManager do
 
   # A socket that was already up keeps the `:opened_at` it has: rewriting it would wipe the uptime
   # its stability is judged on, and every `open_ws_connection/2` on a live connection lands here.
-  defp _stamp_opened_at(base_name, target_api, :new),
-    do: _update_ets(base_name, {target_api, :opened_at}, System.monotonic_time(:millisecond))
+  defp _stamp_opened_at(base_name, target_api, :new) do
+    opened_at = System.monotonic_time(:millisecond)
+    _update_ets(base_name, {target_api, :opened_at}, opened_at)
+  end
 
   defp _stamp_opened_at(_base_name, _target_api, :already_up),
     do: :ok
@@ -560,7 +570,8 @@ defmodule GraphConn.ConnectionManager do
 
     Process.send_after(self(), {reopen_tag, target_api, next_current, hold}, delay)
     _update_ets(state.base_name, {target_api, :conn_pid}, nil)
-    _update_ets(state.base_name, {target_api, :reopen_at}, _stamp(hold, reopen_at))
+    stamp = _stamp(hold, reopen_at)
+    _update_ets(state.base_name, {target_api, :reopen_at}, stamp)
     # Read only by the caller-side spin. `:reopen_at` is the caller-facing hold and is set for a
     # `429` alone, so pacing must not ride on it or every drop would report a rate limit.
     _update_ets(state.base_name, {target_api, :reopen_due_at}, reopen_at)
@@ -579,9 +590,8 @@ defmodule GraphConn.ConnectionManager do
          target_api,
          {:disconnected, {:rejected_by_server, msg}}
        ) do
-    Logger.warning(
-      "#{target_api} connection was refused (#{msg}); reopening once a new token arrives"
-    )
+    "#{target_api} connection was refused (#{msg}); reopening once a new token arrives"
+    |> Logger.warning()
 
     _update_ets(state.base_name, {target_api, :reopen_at}, nil)
     _update_ets(state.base_name, {target_api, :reopen_due_at}, nil)
@@ -624,7 +634,8 @@ defmodule GraphConn.ConnectionManager do
     state = %State{state | ws_connections: Map.delete(state.ws_connections, ws_connection)}
     _stop_ws_connection(ws_connection)
 
-    {:reply, _reply, %State{} = state} = _open_ws(state, api, _initial(), :reopen_dropped_ws)
+    retry_in = _initial()
+    {:reply, _reply, %State{} = state} = _open_ws(state, api, retry_in, :reopen_dropped_ws)
     state
   end
 
@@ -803,7 +814,9 @@ defmodule GraphConn.ConnectionManager do
     [{:config, config}] = :ets.lookup(state.base_name, :config)
     [{:versions, versions}] = :ets.lookup(state.base_name, :versions)
 
-    case GraphRestCalls.authenticate(state.base_name, config, versions) do
+    state.base_name
+    |> GraphRestCalls.authenticate(config, versions)
+    |> case do
       {:ok, %{token: token, expires_at: expires_at}} ->
         now = DateTime.utc_now() |> DateTime.to_unix(:millisecond)
 
@@ -838,10 +851,9 @@ defmodule GraphConn.ConnectionManager do
   # Always `:refresh_token`, never the caller's flow: a `{:connect, _}` would be dropped at
   # `:ready` and no refresh would ever be scheduled again.
   defp _schedule_refresh(expires_at, now, retry_in) when expires_at <= now do
-    Logger.warning(
-      "Token arrived already expired. Check clock skew, or whether `expires-at` is in seconds " <>
-        "rather than milliseconds. Refreshing on the retry curve."
-    )
+    ("Token arrived already expired. Check clock skew, or whether `expires-at` is in seconds " <>
+       "rather than milliseconds. Refreshing on the retry curve.")
+    |> Logger.warning()
 
     _schedule_retry("token refresh", :refresh_token, retry_in, 0)
   end
@@ -849,10 +861,9 @@ defmodule GraphConn.ConnectionManager do
   # The mirror of the already-expired clause. Clamping alone keeps the client up but says nothing,
   # so a Graph sending microseconds looks exactly like one that works.
   defp _schedule_refresh(expires_at, now, _retry_in) when expires_at - now > @max_refresh_in do
-    Logger.warning(
-      "Token `expires-at` #{expires_at} is more than a day out. Check whether it is in " <>
-        "microseconds rather than milliseconds. Refreshing in #{@max_refresh_in}ms regardless."
-    )
+    ("Token `expires-at` #{expires_at} is more than a day out. Check whether it is in " <>
+       "microseconds rather than milliseconds. Refreshing in #{@max_refresh_in}ms regardless.")
+    |> Logger.warning()
 
     Process.send_after(self(), :refresh_token, @max_refresh_in)
   end
@@ -890,10 +901,9 @@ defmodule GraphConn.ConnectionManager do
   end
 
   defp _clamped_floor(advertised_ms, ceiling) do
-    Logger.warning(
-      "Advertised retry-after of #{advertised_ms}ms is above :retry_floor_max_ms " <>
-        "(#{ceiling}ms), clamping. Another rate limit is likely."
-    )
+    ("Advertised retry-after of #{advertised_ms}ms is above :retry_floor_max_ms " <>
+       "(#{ceiling}ms), clamping. Another rate limit is likely.")
+    |> Logger.warning()
 
     ceiling
   end
@@ -935,7 +945,9 @@ defmodule GraphConn.ConnectionManager do
     do: _get_ws_connection(base_name, target_api, :no_deadline_yet)
 
   defp _get_ws_connection(base_name, target_api, deadline) do
-    case :ets.lookup(base_name, {target_api, :conn_pid}) do
+    base_name
+    |> :ets.lookup({target_api, :conn_pid})
+    |> case do
       [{{^target_api, :conn_pid}, nil}] ->
         _await_ws_connection(base_name, target_api, deadline)
 
@@ -1014,17 +1026,20 @@ defmodule GraphConn.ConnectionManager do
   @spec _get_version(base_name :: atom(), target_api :: atom()) ::
           {:ok, version()} | {:error, {:unknown_api, [atom()]}} | {:error, :not_started}
   defp _get_version(base_name, target_api) do
-    case _await_versions(base_name) do
+    base_name
+    |> _await_versions()
+    |> case do
       :not_started ->
-        Logger.warning(
-          "No connection is ready for #{inspect(base_name)}, refusing #{target_api} request. " <>
-            "Is it started in a supervision tree, and can it reach the graph?"
-        )
+        ("No connection is ready for #{inspect(base_name)}, refusing #{target_api} request. " <>
+           "Is it started in a supervision tree, and can it reach the graph?")
+        |> Logger.warning()
 
         {:error, :not_started}
 
       versions ->
-        case Map.get(versions, target_api) do
+        versions
+        |> Map.get(target_api)
+        |> case do
           nil -> {:error, {:unknown_api, Map.keys(versions)}}
           version -> {:ok, version}
         end
@@ -1046,8 +1061,10 @@ defmodule GraphConn.ConnectionManager do
         :ok
 
       {:ok, invalid} ->
-        raise ArgumentError,
-              ":ws_max_frame_bytes must be a positive integer or :infinity, got: #{inspect(invalid)}"
+        message =
+          ":ws_max_frame_bytes must be a positive integer or :infinity, got: #{inspect(invalid)}"
+
+        raise ArgumentError, message
     end
   end
 
@@ -1055,7 +1072,8 @@ defmodule GraphConn.ConnectionManager do
   defp _init_ets(base_name, config) do
     opts = [:named_table, read_concurrency: true]
 
-    ^base_name = :ets.new(base_name, _ets_opts(opts))
+    ets_opts = _ets_opts(opts)
+    ^base_name = :ets.new(base_name, ets_opts)
 
     config = parse_urls(config)
     _reset_ets(base_name, config)
@@ -1090,7 +1108,9 @@ defmodule GraphConn.ConnectionManager do
   @spec _await_versions(base_name :: atom(), deadline :: integer()) ::
           %{atom() => version()} | :not_started
   defp _await_versions(base_name, deadline) do
-    case _read_versions(base_name) do
+    base_name
+    |> _read_versions()
+    |> case do
       {:ok, versions} when map_size(versions) > 0 ->
         versions
 
@@ -1112,7 +1132,9 @@ defmodule GraphConn.ConnectionManager do
   # it. Neither is worth an `ArgumentError` in the caller.
   @spec _read_versions(base_name :: atom()) :: {:ok, %{atom() => version()}} | :error
   defp _read_versions(base_name) do
-    case :ets.whereis(base_name) do
+    base_name
+    |> :ets.whereis()
+    |> case do
       :undefined -> :error
       tid -> {:ok, :ets.lookup_element(tid, :versions, 2)}
     end
@@ -1146,22 +1168,29 @@ defmodule GraphConn.ConnectionManager do
       |> Keyword.get(:url, config[:url])
       |> URI.parse()
 
+    transport = _transport_for_scheme(scheme)
+    insecure = _insecure_for_scheme(scheme, config[:insecure])
+
     config =
       config
       |> Keyword.put(:host, host)
       |> Keyword.put(:port, port)
-      |> Keyword.put(:transport, _transport_for_scheme(scheme))
-      |> Keyword.put(:insecure, _insecure_for_scheme(scheme, config[:insecure]))
+      |> Keyword.put(:transport, transport)
+      |> Keyword.put(:insecure, insecure)
+
+    auth_transport = _transport_for_scheme(auth_scheme)
+
+    auth_insecure =
+      auth_config
+      |> Keyword.get(:insecure, config[:insecure])
+      |> then(&_insecure_for_scheme(scheme, &1))
 
     auth_config =
       auth_config
       |> Keyword.put(:host, auth_host)
       |> Keyword.put(:port, auth_port)
-      |> Keyword.put(:transport, _transport_for_scheme(auth_scheme))
-      |> Keyword.put(
-        :insecure,
-        _insecure_for_scheme(scheme, Keyword.get(auth_config, :insecure, config[:insecure]))
-      )
+      |> Keyword.put(:transport, auth_transport)
+      |> Keyword.put(:insecure, auth_insecure)
 
     Keyword.put(config, :auth, auth_config)
   end

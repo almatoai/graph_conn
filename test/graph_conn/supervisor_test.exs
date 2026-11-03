@@ -57,13 +57,13 @@ defmodule GraphConn.SupervisorTest do
     test "conn_max_idle_time defaults to 10 minutes when not configured" do
       Application.delete_env(:graph_conn, :conn_max_idle_time)
 
-      assert 600_000 == Keyword.fetch!(GraphConn.Supervisor.__pool_opts__(), :conn_max_idle_time)
+      assert 600_000 == _pool_max_idle_time()
     end
 
     test "conn_max_idle_time set to nil defaults to 10 minutes" do
       Application.put_env(:graph_conn, :conn_max_idle_time, nil)
 
-      assert 600_000 == Keyword.fetch!(GraphConn.Supervisor.__pool_opts__(), :conn_max_idle_time)
+      assert 600_000 == _pool_max_idle_time()
     end
 
     test "idle connection is kept when conn_max_idle_time is :infinity" do
@@ -94,5 +94,10 @@ defmodule GraphConn.SupervisorTest do
         Process.exit(pid, :we_need_new_connection)
         _start_connection(config)
     end
+  end
+
+  defp _pool_max_idle_time do
+    GraphConn.Supervisor.__pool_opts__()
+    |> Keyword.fetch!(:conn_max_idle_time)
   end
 end

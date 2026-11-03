@@ -19,10 +19,12 @@ defmodule GraphConn.Features.RateLimitedCallerTest do
   alias GraphConn.Test.ActionWsReopen
 
   setup do
-    on_exit(fn ->
+    cleanup = fn ->
       Mock.clear_rate_limit({:ws_upgrade, "standalone"})
       ActionWsReopen.await_ws_connection(System.monotonic_time(:millisecond) + 15_000)
-    end)
+    end
+
+    on_exit(cleanup)
 
     :ok
   end

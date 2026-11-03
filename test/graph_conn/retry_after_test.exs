@@ -76,7 +76,8 @@ defmodule GraphConn.RetryAfterTest do
       # Unclamped this raises ArgumentError inside ConnectionManager, which is the crash class
       # this whole change exists to remove.
       ref = Process.send_after(self(), :never, wait_in_ms)
-      assert is_integer(Process.cancel_timer(ref))
+      remaining = Process.cancel_timer(ref)
+      assert is_integer(remaining)
     end
 
     test "reports no wait when the header is absent" do

@@ -24,20 +24,19 @@ defmodule GraphConn.WSProxyTest do
   setup do
     original = Application.get_env(:graph_conn, :proxy)
 
-    Application.put_env(:graph_conn, :proxy,
-      address: "localhost",
-      port: to_string(ProxyFixture.port()),
-      transport: "tcp",
-      insecure: "true"
-    )
+    proxy_port = ProxyFixture.port()
+    proxy = [address: "localhost", port: "#{proxy_port}", transport: "tcp", insecure: "true"]
+    Application.put_env(:graph_conn, :proxy, proxy)
 
-    on_exit(fn ->
+    cleanup = fn ->
       Mock.clear_rate_limit({:ws_upgrade, "proxy"})
 
       if original,
         do: Application.put_env(:graph_conn, :proxy, original),
         else: Application.delete_env(:graph_conn, :proxy)
-    end)
+    end
+
+    on_exit(cleanup)
 
     :ok
   end

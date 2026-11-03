@@ -10,22 +10,24 @@ defmodule GraphConn.ActionApi.RequestTest do
       params = %{"other_handler" => "Echo", "command" => "ls"}
 
       %ActionApi.Request{id: request_id} =
-        ActionApi.Request.new(%{
+        %{
           ticket_id: ticket_id,
           handler: handler,
           capability: capability,
           params: params,
           timeout: 5_000
-        })
+        }
+        |> ActionApi.Request.new()
 
       %ActionApi.Request{id: ^request_id} =
-        ActionApi.Request.new(%{
+        %{
           ticket_id: ticket_id,
           handler: handler,
           capability: capability,
           params: params,
           timeout: 5_000
-        })
+        }
+        |> ActionApi.Request.new()
     end
 
     test "request_id is different if ticket_id is different" do
@@ -35,24 +37,26 @@ defmodule GraphConn.ActionApi.RequestTest do
       params = %{"other_handler" => "Echo", "command" => "ls"}
 
       %ActionApi.Request{id: request_id} =
-        ActionApi.Request.new(%{
+        %{
           ticket_id: ticket_id,
           handler: handler,
           capability: capability,
           params: params,
           timeout: 5_000
-        })
+        }
+        |> ActionApi.Request.new()
 
       ticket_id = UUID.uuid4()
 
       %ActionApi.Request{id: request_id2} =
-        ActionApi.Request.new(%{
+        %{
           ticket_id: ticket_id,
           handler: handler,
           capability: capability,
           params: params,
           timeout: 5_000
-        })
+        }
+        |> ActionApi.Request.new()
 
       refute request_id == request_id2
     end
@@ -64,24 +68,26 @@ defmodule GraphConn.ActionApi.RequestTest do
       params = %{"other_handler" => "Echo", "command" => "ls"}
 
       %ActionApi.Request{id: request_id} =
-        ActionApi.Request.new(%{
+        %{
           ticket_id: ticket_id,
           handler: handler,
           capability: capability,
           params: params,
           timeout: 5_000
-        })
+        }
+        |> ActionApi.Request.new()
 
       handler = UUID.uuid4()
 
       %ActionApi.Request{id: request_id2} =
-        ActionApi.Request.new(%{
+        %{
           ticket_id: ticket_id,
           handler: handler,
           capability: capability,
           params: params,
           timeout: 5_000
-        })
+        }
+        |> ActionApi.Request.new()
 
       refute request_id == request_id2
     end
@@ -93,24 +99,26 @@ defmodule GraphConn.ActionApi.RequestTest do
       params = %{"other_handler" => "Echo", "command" => "ls"}
 
       %ActionApi.Request{id: request_id} =
-        ActionApi.Request.new(%{
+        %{
           ticket_id: ticket_id,
           handler: handler,
           capability: capability,
           params: params,
           timeout: 5_000
-        })
+        }
+        |> ActionApi.Request.new()
 
       capability = UUID.uuid4()
 
       %ActionApi.Request{id: request_id2} =
-        ActionApi.Request.new(%{
+        %{
           ticket_id: ticket_id,
           handler: handler,
           capability: capability,
           params: params,
           timeout: 5_000
-        })
+        }
+        |> ActionApi.Request.new()
 
       refute request_id == request_id2
     end
@@ -122,24 +130,26 @@ defmodule GraphConn.ActionApi.RequestTest do
       params = %{"other_handler" => "Echo", "command" => "ls"}
 
       %ActionApi.Request{id: request_id} =
-        ActionApi.Request.new(%{
+        %{
           ticket_id: ticket_id,
           handler: handler,
           capability: capability,
           params: params,
           timeout: 5_000
-        })
+        }
+        |> ActionApi.Request.new()
 
       params = %{"other_handler" => "Echo", "command" => "ls -l"}
 
       %ActionApi.Request{id: request_id2} =
-        ActionApi.Request.new(%{
+        %{
           ticket_id: ticket_id,
           handler: handler,
           capability: capability,
           params: params,
           timeout: 5_000
-        })
+        }
+        |> ActionApi.Request.new()
 
       refute request_id == request_id2
     end

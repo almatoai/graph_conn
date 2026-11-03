@@ -23,8 +23,8 @@ defmodule GraphConn.GraphRestCallsTest do
       on_exit(fn -> Mock.clear_rate_limit(:versions) end)
       Mock.rate_limit_versions(1, 2)
 
-      assert {:error, {:rate_limited, 2_000}} ==
-               get_versions(TestActionHandler, _config("versions_rate_limited"))
+      config = _config("versions_rate_limited")
+      assert {:error, {:rate_limited, 2_000}} == get_versions(TestActionHandler, config)
     end
   end
 

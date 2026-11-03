@@ -51,10 +51,9 @@ if Code.ensure_loaded?(Plug.Cowboy) do
           _await_free_port(port, attempts_left - 1)
 
         {:error, reason} ->
-          Logger.error(
-            "Port #{port} still #{inspect(reason)} after " <>
-              "#{@port_wait_attempts * @port_wait_in_ms}ms; another suite is holding it."
-          )
+          ("Port #{port} still #{inspect(reason)} after " <>
+             "#{@port_wait_attempts * @port_wait_in_ms}ms; another suite is holding it.")
+          |> Logger.error()
 
           {:error, reason}
       end
@@ -76,10 +75,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       children = [
         {Plug.Cowboy,
          scheme: :http, plug: MockRouter, options: [dispatch: _dispatch(), port: port]},
-        Registry.child_spec(
-          keys: :duplicate,
-          name: Registry.TestSockets
-        )
+        Registry.child_spec(keys: :duplicate, name: Registry.TestSockets)
       ]
 
       Logger.info("Starting local test server @ port #{inspect(port)}")
@@ -174,10 +170,12 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         |> Keyword.put(:url, "http://localhost:#{port}")
         |> Keyword.put(:transport, :tcp)
 
+      credentials = apply(__MODULE__, local_fun_name, [])
+
       auth_config =
         config
         |> Keyword.get(:auth, [])
-        |> Keyword.put(:credentials, apply(__MODULE__, local_fun_name, []))
+        |> Keyword.put(:credentials, credentials)
 
       config = Keyword.put(config, :auth, auth_config)
 

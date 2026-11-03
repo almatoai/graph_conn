@@ -21,11 +21,13 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry.Local do
   @doc false
   @spec start_link(base_name :: atom()) :: GenServer.on_start()
   def start_link(base_name) do
-    Registry.start_link(
+    registry_opts = [
       keys: :duplicate,
       name: RequestRegistry.name(base_name),
       partitions: System.schedulers_online()
-    )
+    ]
+
+    Registry.start_link(registry_opts)
   end
 
   @impl RequestRegistry

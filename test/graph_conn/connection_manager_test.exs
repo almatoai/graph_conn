@@ -5,6 +5,8 @@ defmodule GraphConn.ConnectionManagerTest do
 
   alias GraphConn.{ConnectionManager, Mock, Request, TestClient, TestConn}
 
+  @request %Request{path: "capabilities"}
+
   describe "execute/4 with no connection running" do
     setup do
       TestClient.stop()
@@ -15,7 +17,7 @@ defmodule GraphConn.ConnectionManagerTest do
     test "gives up on a client that isn't coming instead of blocking forever" do
       _put_startup_wait(200)
 
-      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:action, _request()) end)
+      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:action, @request) end)
 
       assert {:error, :not_started} = result
 
@@ -27,7 +29,7 @@ defmodule GraphConn.ConnectionManagerTest do
     test "keeps waiting while still inside the grace period" do
       _put_startup_wait(1_000)
 
-      task = Task.async(fn -> TestConn.execute(:action, _request()) end)
+      task = Task.async(fn -> TestConn.execute(:action, @request) end)
 
       # Nothing has been decided yet a third of the way in, so a client that is merely slow to
       # start still has time to turn up.
@@ -39,7 +41,7 @@ defmodule GraphConn.ConnectionManagerTest do
     test "fails on the first look when the grace period is disabled" do
       _put_startup_wait(0)
 
-      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:action, _request()) end)
+      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:action, @request) end)
 
       assert {:error, :not_started} = result
       assert elapsed < 100
@@ -48,7 +50,7 @@ defmodule GraphConn.ConnectionManagerTest do
     test "picks up a connection that starts during the grace period" do
       _put_startup_wait(2_000)
 
-      task = Task.async(fn -> TestConn.execute(:action, _request()) end)
+      task = Task.async(fn -> TestConn.execute(:action, @request) end)
 
       # Let the caller land in the wait, then bring the client up underneath it. This is the race
       # the wait exists for: `ConnectionManager` creates the table in `init/1` and
@@ -59,7 +61,8 @@ defmodule GraphConn.ConnectionManagerTest do
 
       # The call rode out the race instead of giving up on a client that was on its way. What the
       # graph answers once it gets there is `execute/3`'s business, not this wait's.
-      refute match?({:error, :not_started}, Task.await(task, 3_000))
+      result = Task.await(task, 3_000)
+      refute match?({:error, :not_started}, result)
     end
   end
 
@@ -79,7 +82,7 @@ defmodule GraphConn.ConnectionManagerTest do
       assert {:ok, _pid} = TestClient.start(auto_connect: false)
       assert {:disconnected, :started} = TestConn.status()
 
-      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:action, _request()) end)
+      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:action, @request) end)
 
       assert {:error, :not_started} = result
       assert elapsed >= 200
@@ -90,7 +93,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
       assert {:ok, _pid} = TestClient.start(auto_connect: false)
 
-      task = Task.async(fn -> TestConn.execute(:action, _request()) end)
+      task = Task.async(fn -> TestConn.execute(:action, @request) end)
 
       # Nothing is decided while the versions are still missing -- a client that is merely slow to
       # reach the graph gets the same grace period as one that is slow to start at all.
@@ -246,10 +249,12 @@ defmodule GraphConn.ConnectionManagerTest do
     setup do
       TestClient.stop()
 
-      on_exit(fn ->
+      cleanup = fn ->
         Mock.clear_rate_limit("action_invoker")
         TestClient.stop()
-      end)
+      end
+
+      on_exit(cleanup)
 
       :ok
     end
@@ -259,13 +264,16 @@ defmodule GraphConn.ConnectionManagerTest do
       _put_env(:retry_max_ms, 400)
       Mock.rate_limit_auth("action_invoker", 6, :no_hint)
 
-      {{elapsed, _ready}, log} =
-        with_log(fn ->
-          TestClient.measure(fn ->
-            assert {:ok, _sup_pid} = TestClient.start()
-            assert_receive {:conn_status_changed, :ready}, 10_000
-          end)
-        end)
+      logged = fn ->
+        measured = fn ->
+          assert {:ok, _sup_pid} = TestClient.start()
+          assert_receive {:conn_status_changed, :ready}, 10_000
+        end
+
+        TestClient.measure(measured)
+      end
+
+      {{elapsed, _ready}, log} = with_log(logged)
 
       # Names the site and the delay actually chosen. Every site logs the same "429 received"
       # line from `RetryAfter`, so without this an operator cannot tell which one is backing off
@@ -286,10 +294,12 @@ defmodule GraphConn.ConnectionManagerTest do
     setup do
       TestClient.stop()
 
-      on_exit(fn ->
+      cleanup = fn ->
         Mock.clear_rate_limit(:versions)
         TestClient.stop()
-      end)
+      end
+
+      on_exit(cleanup)
 
       :ok
     end
@@ -299,13 +309,16 @@ defmodule GraphConn.ConnectionManagerTest do
       _put_env(:retry_max_ms, 400)
       Mock.rate_limit_versions(6, :no_hint)
 
-      {{elapsed, _ready}, log} =
-        with_log(fn ->
-          TestClient.measure(fn ->
-            assert {:ok, _sup_pid} = TestClient.start()
-            assert_receive {:conn_status_changed, :ready}, 10_000
-          end)
-        end)
+      logged = fn ->
+        measured = fn ->
+          assert {:ok, _sup_pid} = TestClient.start()
+          assert_receive {:conn_status_changed, :ready}, 10_000
+        end
+
+        TestClient.measure(measured)
+      end
+
+      {{elapsed, _ready}, log} = with_log(logged)
 
       assert log =~ "Retrying API version discovery in"
 
@@ -322,10 +335,12 @@ defmodule GraphConn.ConnectionManagerTest do
     setup do
       TestClient.stop()
 
-      on_exit(fn ->
+      cleanup = fn ->
         Mock.clear_rate_limit({:ws_upgrade, "invoker"})
         TestClient.stop()
-      end)
+      end
+
+      on_exit(cleanup)
 
       :ok
     end
@@ -342,7 +357,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
       # The caller is told what actually happened. Calling this a rate limit would be a lie, and
       # would also regress a path that spins and recovers today.
-      assert {:error, {:upgrade_refused, 503}} = TestConn.execute(:"action-ws", _request())
+      assert {:error, {:upgrade_refused, 503}} = TestConn.execute(:"action-ws", @request)
 
       assert manager == _manager_pid()
       assert Process.alive?(manager)
@@ -368,7 +383,7 @@ defmodule GraphConn.ConnectionManagerTest do
       # Then a caller is answered immediately. Without the pending stamp this is the unbounded
       # `Process.sleep(5)` spin: every caller parks for the whole backoff and gets `:ok` late.
       assert {:error, {:rate_limited, _retry_after_ms}} =
-               TestConn.execute(:"action-ws", _request())
+               TestConn.execute(:"action-ws", @request)
     end
 
     test "gives up on a forced open for a client that never wanted the connection" do
@@ -379,15 +394,16 @@ defmodule GraphConn.ConnectionManagerTest do
 
       assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
       assert_receive {:conn_status_changed, :got_api_versions}, 15_000
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
 
       Mock.reject_ws_upgrade("invoker", 20, 503, :no_hint)
 
-      {_result, log} =
-        with_log(fn ->
-          GraphConn.open_ws_connection(TestConn, :"action-ws")
-          Process.sleep(1_500)
-        end)
+      logged = fn ->
+        GraphConn.open_ws_connection(TestConn, :"action-ws")
+        Process.sleep(1_500)
+      end
+
+      {_result, log} = with_log(logged)
 
       # Non-vacuity: assert the mock's own line, not the bare status, which a jittered delay of
       # "1503ms" would satisfy by accident.
@@ -407,7 +423,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
       Mock.reject_ws_upgrade("invoker", 1, 503, :no_hint)
 
-      assert {:error, {:upgrade_refused, 503}} = TestConn.execute(:"action-ws", _request())
+      assert {:error, {:upgrade_refused, 503}} = TestConn.execute(:"action-ws", @request)
 
       assert [{_key, nil}] = :ets.lookup(TestConn, {:"action-ws", :reopen_at})
     end
@@ -420,12 +436,12 @@ defmodule GraphConn.ConnectionManagerTest do
       # which is the shape a fresh client has for every WS api it has not used yet.
       Mock.reject_ws_upgrade("invoker", 1, 429, 2)
 
-      assert {:error, {:rate_limited, _first}} = TestConn.execute(:"action-ws", _request())
+      assert {:error, {:rate_limited, _first}} = TestConn.execute(:"action-ws", @request)
 
       # The second caller must read the stamp, not mount another upgrade. Mounting one would
       # consume the arm and succeed here -- and in production would re-hit the limiter once per
       # caller, so the retry rate would scale with caller volume instead of the curve.
-      assert {:error, {:rate_limited, _second}} = TestConn.execute(:"action-ws", _request())
+      assert {:error, {:rate_limited, _second}} = TestConn.execute(:"action-ws", @request)
     end
 
     test "refuses a public open while a hold is in effect" do
@@ -433,7 +449,7 @@ defmodule GraphConn.ConnectionManagerTest do
       assert_receive {:conn_status_changed, :ready}, 15_000
 
       Mock.reject_ws_upgrade("invoker", 1, 429, 2)
-      assert {:error, {:rate_limited, _held}} = TestConn.execute(:"action-ws", _request())
+      assert {:error, {:rate_limited, _held}} = TestConn.execute(:"action-ws", @request)
 
       # `open_ws_connection/2` is the door consumers actually use -- anything reopening a downed
       # WS from `on_status_change/3` comes through here. Unguarded it mounts a real upgrade and
@@ -455,7 +471,7 @@ defmodule GraphConn.ConnectionManagerTest do
       :ets.insert(TestConn, {{:"action-ws", :conn_pid}, nil})
       :ets.insert(TestConn, {{:"action-ws", :reopen_at}, _monotonic_ms_ago(5_000)})
 
-      assert {:error, {:rate_limited, 0}} == TestConn.execute(:"action-ws", _request())
+      assert {:error, {:rate_limited, 0}} == TestConn.execute(:"action-ws", @request)
     end
   end
 
@@ -512,11 +528,8 @@ defmodule GraphConn.ConnectionManagerTest do
       _put_env(:retry_floor_max_ms, 300)
       state = _ws_state(table, :got_api_versions, :ready)
 
-      assert {:noreply, ^state} =
-               ConnectionManager.handle_info(
-                 {:reopen_ws, :"action-ws", 100, {:hold, 5_000}},
-                 state
-               )
+      reopen = {:reopen_ws, :"action-ws", 100, {:hold, 5_000}}
+      assert {:noreply, ^state} = ConnectionManager.handle_info(reopen, state)
 
       # Both directions, so this test does not depend on its sibling above. Too FAR in the future
       # and the reopen is refused by its own hold; expiring too EARLY lets a public open through
@@ -567,7 +580,7 @@ defmodule GraphConn.ConnectionManagerTest do
       assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
       assert_receive {:conn_status_changed, :got_api_versions}, 15_000
 
-      {_reply, log} = with_log(fn -> GenServer.call(_manager_pid(), :refresh_token) end)
+      {_reply, log} = with_log(fn -> _call_manager(:refresh_token) end)
 
       # The refusal carries the offending value precisely so it can be named. Without it an
       # operator sees a client retrying authentication forever and nothing saying why.
@@ -608,7 +621,7 @@ defmodule GraphConn.ConnectionManagerTest do
       assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
       assert_receive {:conn_status_changed, :got_api_versions}, 15_000
 
-      {reply, log} = with_log(fn -> GenServer.call(_manager_pid(), :refresh_token) end)
+      {reply, log} = with_log(fn -> _call_manager(:refresh_token) end)
 
       assert :ok == reply
       assert log =~ "expires-at"
@@ -658,7 +671,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
       # Reaching `:ready` is the load-bearing part: a rejected timestamp would schedule a retry
       # and leave the client without a token, which is also a manager that survives.
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
       assert_receive {:conn_status_changed, :ready}, 15_000
     end
   end
@@ -677,12 +690,13 @@ defmodule GraphConn.ConnectionManagerTest do
       _put_env(:retry_initial_ms, 100)
       _put_env(:retry_max_ms, 2_000)
 
-      {_result, log} =
-        with_log(fn ->
-          assert {:ok, _sup_pid} = TestClient.start()
-          assert_receive {:conn_status_changed, :ready}, 15_000
-          Process.sleep(4_000)
-        end)
+      logged = fn ->
+        assert {:ok, _sup_pid} = TestClient.start()
+        assert_receive {:conn_status_changed, :ready}, 15_000
+        Process.sleep(4_000)
+      end
+
+      {_result, log} = with_log(logged)
 
       delays =
         ~r/Retrying token refresh in (\d+)ms/
@@ -700,11 +714,12 @@ defmodule GraphConn.ConnectionManagerTest do
       _put_env(:retry_initial_ms, 100)
       _put_env(:retry_max_ms, 200)
 
-      {_result, log} =
-        with_log(fn ->
-          assert {:ok, _sup_pid} = TestClient.start()
-          Process.sleep(1_000)
-        end)
+      logged = fn ->
+        assert {:ok, _sup_pid} = TestClient.start()
+        Process.sleep(1_000)
+      end
+
+      {_result, log} = with_log(logged)
 
       attempts =
         ~r/Authenticating\.\.\./
@@ -722,10 +737,12 @@ defmodule GraphConn.ConnectionManagerTest do
     setup do
       TestClient.stop()
 
-      on_exit(fn ->
+      cleanup = fn ->
         Mock.clear_rate_limit({:ws_upgrade, "invoker"})
         TestClient.stop()
-      end)
+      end
+
+      on_exit(cleanup)
 
       :ok
     end
@@ -736,7 +753,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
       # What a 401 on any REST call does in production, and the only thing that puts a real token
       # on a client whose `desired_status` never reaches `:ready`.
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
 
       GraphConn.open_ws_connection(TestConn, :"action-ws")
       assert_receive {:conn_status_changed, :"action-ws", :ready}, 15_000
@@ -754,7 +771,7 @@ defmodule GraphConn.ConnectionManagerTest do
     test "brings a dropped socket back even when its first reopen is rate limited" do
       assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
       assert_receive {:conn_status_changed, :got_api_versions}, 15_000
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
 
       GraphConn.open_ws_connection(TestConn, :"action-ws")
       assert_receive {:conn_status_changed, :"action-ws", :ready}, 15_000
@@ -774,7 +791,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
       assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
       assert_receive {:conn_status_changed, :got_api_versions}, 15_000
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
 
       GraphConn.open_ws_connection(TestConn, :"action-ws")
       assert_receive {:conn_status_changed, :"action-ws", :ready}, 15_000
@@ -786,7 +803,7 @@ defmodule GraphConn.ConnectionManagerTest do
       # The reopen is paced into (1_000, 2_000], and `:startup_wait_ms` defaults to 500. A caller
       # that only waits the shorter of the two is told the connection is down while the client is
       # a second away from bringing it back.
-      assert :ok = TestConn.execute(:"action-ws", _request())
+      assert :ok = TestConn.execute(:"action-ws", @request)
     end
 
     test "stops at the reopen it first saw rather than following an escalating curve" do
@@ -799,7 +816,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
       assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
       assert_receive {:conn_status_changed, :got_api_versions}, 15_000
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
 
       GraphConn.open_ws_connection(TestConn, :"action-ws")
       assert_receive {:conn_status_changed, :"action-ws", :ready}, 15_000
@@ -809,7 +826,7 @@ defmodule GraphConn.ConnectionManagerTest do
       Process.exit(conn_pid, :kill)
       _await_conn_pid_cleared(:"action-ws", System.monotonic_time(:millisecond) + 5_000)
 
-      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:"action-ws", _request()) end)
+      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:"action-ws", @request) end)
 
       assert {:error, :ws_connection_down} = result
 
@@ -821,7 +838,7 @@ defmodule GraphConn.ConnectionManagerTest do
     test "answers a rate limit straight away instead of waiting out its reopen" do
       assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
       assert_receive {:conn_status_changed, :got_api_versions}, 15_000
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
 
       GraphConn.open_ws_connection(TestConn, :"action-ws")
       assert_receive {:conn_status_changed, :"action-ws", :ready}, 15_000
@@ -833,7 +850,7 @@ defmodule GraphConn.ConnectionManagerTest do
       Process.exit(conn_pid, :kill)
       _await_pending_reopen(:"action-ws", System.monotonic_time(:millisecond) + 10_000)
 
-      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:"action-ws", _request()) end)
+      {elapsed, result} = TestClient.measure(fn -> TestConn.execute(:"action-ws", @request) end)
 
       assert {:error, {:rate_limited, _ms}} = result
 
@@ -912,11 +929,8 @@ defmodule GraphConn.ConnectionManagerTest do
         desired_status: :ready
       }
 
-      assert {:noreply, _state} =
-               ConnectionManager.handle_info(
-                 {:DOWN, make_ref(), :process, dead_pid, :killed},
-                 state
-               )
+      down = {:DOWN, make_ref(), :process, dead_pid, :killed}
+      assert {:noreply, _state} = ConnectionManager.handle_info(down, state)
 
       assert [{_key, ^held_until}] = :ets.lookup(TestConn, {:"action-ws", :reopen_at})
       refute_received {:reopen_ws, _api, _retry_in, _hold}
@@ -990,13 +1004,15 @@ defmodule GraphConn.ConnectionManagerTest do
       :ok = :sys.suspend(manager)
       # Whether it is still there is a race with its own supervisor, and a dead one needs no
       # resuming either way.
-      on_exit(fn ->
+      cleanup = fn ->
         try do
           :sys.resume(manager)
         catch
           :exit, _already_gone -> :ok
         end
-      end)
+      end
+
+      on_exit(cleanup)
 
       {elapsed, result} =
         TestClient.measure(fn -> catch_exit(ConnectionManager.status(TestConn, 100)) end)
@@ -1018,7 +1034,7 @@ defmodule GraphConn.ConnectionManagerTest do
     test "answers the caller instead of dying on the reply shape" do
       _reject_next_authentication()
 
-      assert {:error, :wrong_credentials} = GenServer.call(_manager_pid(), :refresh_token)
+      assert {:error, :wrong_credentials} = _call_manager(:refresh_token)
     end
   end
 
@@ -1026,10 +1042,12 @@ defmodule GraphConn.ConnectionManagerTest do
     setup do
       TestClient.stop()
 
-      on_exit(fn ->
+      cleanup = fn ->
         Mock.clear_rate_limit({:ws_upgrade, "invoker"})
         TestClient.stop()
-      end)
+      end
+
+      on_exit(cleanup)
 
       :ok
     end
@@ -1085,7 +1103,7 @@ defmodule GraphConn.ConnectionManagerTest do
       # tell is down. It hands back the live one, and must not restart the clock that decides
       # whether the socket has proved itself.
       GraphConn.open_ws_connection(TestConn, :"action-ws")
-      assert :ready = GenServer.call(_manager_pid(), :status)
+      assert :ready = _call_manager(:status)
 
       _close_and_read_curve()
 
@@ -1136,7 +1154,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
       # The token was what the Graph refused, so a fresh one is the event that makes reconnecting
       # worth trying again. A handler never sends a request of its own to trigger it.
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
 
       _await_conn_pid(:"action-ws", System.monotonic_time(:millisecond) + 25_000)
     end
@@ -1226,7 +1244,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
     assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
     assert_receive {:conn_status_changed, :got_api_versions}, 15_000
-    assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+    assert :ok = _call_manager(:refresh_token)
 
     GraphConn.open_ws_connection(TestConn, :"action-ws")
     assert_receive {:conn_status_changed, :"action-ws", :ready}, 15_000
@@ -1252,7 +1270,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
   defp _await_manager(deadline) do
     cond do
-      is_pid(_manager_pid()) ->
+      _manager_pid() |> is_pid() ->
         :ok
 
       System.monotonic_time(:millisecond) < deadline ->
@@ -1280,6 +1298,11 @@ defmodule GraphConn.ConnectionManagerTest do
     :ok
   end
 
+  defp _call_manager(message) do
+    _manager_pid()
+    |> GenServer.call(message)
+  end
+
   defp _manager_pid do
     TestConn
     |> Module.concat("ConnectionManager")
@@ -1297,8 +1320,6 @@ defmodule GraphConn.ConnectionManagerTest do
       desired_status: desired_status
     }
   end
-
-  defp _request, do: %Request{path: "capabilities"}
 
   defp _put_startup_wait(ms),
     do: _put_env(:startup_wait_ms, ms)

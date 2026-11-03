@@ -131,7 +131,8 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       |> Registry.register({:client, state.client_type}, {})
 
       :ok = GraphConn.Mock.put_ws_upgrade(:"action-ws", state.upgrade_token)
-      send(self(), _hello(state.client_type))
+      hello = _hello(state.client_type)
+      send(self(), hello)
       {:ok, state}
     end
 
@@ -202,7 +203,8 @@ if Code.ensure_loaded?(Plug.Cowboy) do
           _deny(state, id, retry_after_ms)
 
         :error ->
-          _submit(request, id, capability, state, GraphConn.Mock.take_submit_drop(client_type))
+          submit_drop = GraphConn.Mock.take_submit_drop(client_type)
+          _submit(request, id, capability, state, submit_drop)
       end
     end
 
@@ -224,10 +226,12 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         end
       end)
 
+      json = Jason.encode!(response)
+
       Registry.TestSockets
       |> Registry.dispatch(id, fn entries ->
         for {pid, _} <- entries do
-          Process.send(pid, Jason.encode!(response), [])
+          Process.send(pid, json, [])
         end
       end)
     end
@@ -279,8 +283,10 @@ if Code.ensure_loaded?(Plug.Cowboy) do
     defp _forward(_request, {:ok, :drop}),
       do: :ok
 
-    defp _forward(request, :error),
-      do: _broadcast("action_handler", Jason.encode!(request))
+    defp _forward(request, :error) do
+      json = Jason.encode!(request)
+      _broadcast("action_handler", json)
+    end
 
     # What a rate-limiting gateway answers on the open socket: an error frame carrying the client's
     # own id, in place of the ack.

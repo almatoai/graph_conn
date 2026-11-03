@@ -98,7 +98,8 @@ defmodule GraphConn.Mock do
   @doc "Merges JSON-decoded `new_capabilities` into the stored capabilities."
   @spec put_capabilities(new_capabilities :: String.t()) :: :ok
   def put_capabilities(new_capabilities) when is_binary(new_capabilities) do
-    capabilities = Map.merge(get_capabilities(), convert_capabilities_from_json(new_capabilities))
+    new_capabilities = convert_capabilities_from_json(new_capabilities)
+    capabilities = get_capabilities() |> Map.merge(new_capabilities)
 
     mock =
       :graph_conn
@@ -120,11 +121,8 @@ defmodule GraphConn.Mock do
   @spec put_applicabilities(ah_id :: String.t(), new_applicabilities :: String.t()) :: :ok
   def put_applicabilities(ah_id \\ "action_handler", new_applicabilities)
       when is_binary(new_applicabilities) do
-    applicabilities =
-      Map.merge(
-        get_applicabilities()[ah_id],
-        convert_applicabilities_from_json(new_applicabilities)
-      )
+    new_applicabilities = convert_applicabilities_from_json(new_applicabilities)
+    applicabilities = Map.merge(get_applicabilities()[ah_id], new_applicabilities)
 
     mock =
       :graph_conn
@@ -306,7 +304,8 @@ defmodule GraphConn.Mock do
       |> Keyword.get(:hello_max_frame_bytes, %{})
       |> Map.put(client_type, max_frame_bytes)
 
-    Application.put_env(:graph_conn, :mock, Keyword.put(mock, :hello_max_frame_bytes, limits))
+    mock = Keyword.put(mock, :hello_max_frame_bytes, limits)
+    Application.put_env(:graph_conn, :mock, mock)
   end
 
   @doc false
@@ -512,7 +511,9 @@ defmodule GraphConn.Mock do
       applicability_map = Map.get(elem, "applicability")
 
       {applicability_name, applicability_value} =
-        case Enum.into(applicability_map, []) do
+        applicability_map
+        |> Enum.into([])
+        |> case do
           [{applicability_name, applicability_value}] -> {applicability_name, applicability_value}
           [applicability_name] -> {applicability_name, %{}}
         end

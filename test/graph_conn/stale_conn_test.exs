@@ -12,7 +12,7 @@ defmodule GraphConn.StaleConnTest do
       |> Application.fetch_env!(:mock_server_port)
       |> DropProxy.start_link()
 
-    on_exit(fn ->
+    cleanup = fn ->
       original
       |> case do
         nil -> Application.delete_env(:graph_conn, :conn_max_idle_time)
@@ -20,7 +20,9 @@ defmodule GraphConn.StaleConnTest do
       end
 
       TestClient.stop()
-    end)
+    end
+
+    on_exit(cleanup)
 
     {:ok, proxy: proxy}
   end

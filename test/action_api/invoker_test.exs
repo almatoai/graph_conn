@@ -3,9 +3,10 @@ defmodule GraphConn.ActionApi.InvokerTest do
 
   describe "get_capabilities/0" do
     test "returns list of available capabilities" do
-      _only_with_mock_server(fn ->
-        assert Map.has_key?(ActionInvoker.available_capabilities(), "ExecuteCommand")
-        refute Map.has_key?(ActionInvoker.available_capabilities(), "additional_capability")
+      run = fn ->
+        capabilities = ActionInvoker.available_capabilities()
+        assert Map.has_key?(capabilities, "ExecuteCommand")
+        refute Map.has_key?(capabilities, "additional_capability")
 
         new_capabilities = """
         {"additional_capability" : {}}
@@ -15,9 +16,12 @@ defmodule GraphConn.ActionApi.InvokerTest do
 
         ActionInvoker.reconfigure()
 
-        assert Map.has_key?(ActionInvoker.available_capabilities(), "ExecuteCommand")
-        assert Map.has_key?(ActionInvoker.available_capabilities(), "additional_capability")
-      end)
+        capabilities = ActionInvoker.available_capabilities()
+        assert Map.has_key?(capabilities, "ExecuteCommand")
+        assert Map.has_key?(capabilities, "additional_capability")
+      end
+
+      _only_with_mock_server(run)
     end
   end
 
@@ -42,14 +46,14 @@ defmodule GraphConn.ActionApi.InvokerTest do
       params = %{"other_handler" => "Echo", "command" => "ls"}
 
       assert {:ok, %{"command" => "ls"}} =
-               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)
+               _execute_new("ExecuteCommand", params)
     end
 
     @tag :integration
     test "invokes RunScript with success" do
       params = %{"command" => "ls", "host" => "localhost"}
 
-      assert {:ok, response} = ActionInvoker.execute(UUID.uuid4(), _ah_id(), "RunScript", params)
+      assert {:ok, response} = _execute_new("RunScript", params)
 
       assert is_binary(response)
     end
@@ -58,11 +62,11 @@ defmodule GraphConn.ActionApi.InvokerTest do
       params = %{"command" => "failing_command", "host" => "localhost"}
 
       assert {:error, _req_id, "the command does not point to an existing file"} =
-               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "RunScript", params)
+               _execute_new("RunScript", params)
     end
 
     test "invokes HTTP with success" do
-      _only_with_mock_server(fn ->
+      run = fn ->
         params = %{
           method: "POST",
           url: "https://reqres.in/api/users",
@@ -73,41 +77,43 @@ defmodule GraphConn.ActionApi.InvokerTest do
         }
 
         assert {:ok, %{"body" => body, "code" => 201, "exec" => _}} =
-                 ActionInvoker.execute(UUID.uuid4(), _ah_id(), "HTTP", params)
+                 _execute_new("HTTP", params)
 
         assert %{
                  "a" => 1,
                  "b" => "b",
                  "c" => [%{"aa" => 11, "bb" => nil}]
                } = Jason.decode!(body)
-      end)
+      end
+
+      _only_with_mock_server(run)
     end
 
     test "injects default timeout when one is missing" do
       params = %{"other_handler" => "Echo", "command" => "ls"}
 
       assert {:ok, %{"other_handler" => "Echo", "command" => "ls", "timeout" => _}} =
-               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)
+               _execute_new("ExecuteCommand", params)
     end
 
     test "doesn't inject default timeout if one is provided" do
       params = %{"other_handler" => "Echo", "command" => "ls", "timeout" => 123}
 
       assert {:ok, %{"command" => "ls", "timeout" => 123_000}} =
-               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)
+               _execute_new("ExecuteCommand", params)
     end
 
     test "request understands atom keys" do
       params = %{other_handler: "Echo", command: "ls", timeout: 123}
 
       assert {:ok, %{"command" => "ls", "timeout" => 123_000}} =
-               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)
+               _execute_new("ExecuteCommand", params)
     end
 
     test "returns nack for invalid capability" do
       assert {:error, _req_id,
               {:nack, %{code: 404, message: "capability invalid_capability not found"}}} =
-               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "invalid_capability", %{})
+               _execute_new("invalid_capability", %{})
     end
 
     test "returns error if response has error key" do
@@ -118,7 +124,7 @@ defmodule GraphConn.ActionApi.InvokerTest do
       }
 
       assert {:error, _req_id, %{"code" => 404, "message" => "Error message"}} =
-               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)
+               _execute_new("ExecuteCommand", params)
     end
 
     test "actions can be executed in parallel" do
@@ -135,19 +141,19 @@ defmodule GraphConn.ActionApi.InvokerTest do
 
         # if Integer.mod(n, 349) == 0, do: spawn(fn -> _crash_connection() end)
 
-        spawn(fn ->
+        work = fn ->
           params =
             params
             |> Map.put("attempt", n)
             |> Map.put("req", req)
 
           assert {:ok, %{"command" => "ls", "attempt" => ^n, "req" => ^req}} =
-                   ActionInvoker.execute(req, _ah_id(), "ExecuteCommand", params,
-                     ack_timeout: timeout * 100
-                   )
+                   _execute(req, "ExecuteCommand", params, ack_timeout: timeout * 100)
 
           send(test_pid, req)
-        end)
+        end
+
+        spawn(work)
 
         Map.put(acc, req, nil)
       end)
@@ -165,9 +171,7 @@ defmodule GraphConn.ActionApi.InvokerTest do
       params = %{"other_handler" => "Echo", "command" => "ls"}
 
       assert {:ok, %{"command" => "ls"}} =
-               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params,
-                 ack_timeout: 70
-               )
+               _execute_new("ExecuteCommand", params, ack_timeout: 70)
     end
 
     ## These should test Handler and first one needs to be changed
@@ -213,12 +217,14 @@ defmodule GraphConn.ActionApi.InvokerTest do
       ticket_id = UUID.uuid4()
       test_pid = self()
 
-      spawn(fn ->
+      work = fn ->
         assert {:ok, %{"command" => "ls"}} =
-                 ActionInvoker.execute(ticket_id, _ah_id(), "ExecuteCommand", params)
+                 _execute(ticket_id, "ExecuteCommand", params)
 
         send(test_pid, :done)
-      end)
+      end
+
+      spawn(work)
 
       # Wait for ack to be recieved and then crash connection
       Process.sleep(200)
@@ -234,8 +240,18 @@ defmodule GraphConn.ActionApi.InvokerTest do
       params = %{other_handler: "Echo", command: "ls", timeout: 1}
 
       assert {:error, _req_id, {:exec_timeout, 1_000}} =
-               ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)
+               _execute_new("ExecuteCommand", params)
     end
+  end
+
+  defp _execute_new(capability, params, opts \\ []) do
+    req_id = UUID.uuid4()
+    _execute(req_id, capability, params, opts)
+  end
+
+  defp _execute(req_id, capability, params, opts \\ []) do
+    ah_id = _ah_id()
+    ActionInvoker.execute(req_id, ah_id, capability, params, opts)
   end
 
   defp _ah_id do

@@ -16,10 +16,12 @@ defmodule GraphConn.ActionApi.HandlerTest do
     deadline = System.monotonic_time(:millisecond) + 800
 
     for _ <- 1..executions do
-      spawn(fn ->
+      work = fn ->
         assert {:ok, %{"other_handler" => "Echo", "command" => "ls", "timeout" => _}} =
-                 ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)
-      end)
+                 _execute_new("ExecuteCommand", params)
+      end
+
+      spawn(work)
     end
 
     assert :ok == _await_no_new_processes(procs_before, deadline)
@@ -31,10 +33,12 @@ defmodule GraphConn.ActionApi.HandlerTest do
     req_id = UUID.uuid4()
 
     for _ <- 1..executions do
-      spawn(fn ->
+      work = fn ->
         assert {:ok, %{"other_handler" => "Echo", "command" => "ls", "timeout" => _}} =
-                 ActionInvoker.execute(req_id, _ah_id(), "ExecuteCommand", params)
-      end)
+                 _execute(req_id, "ExecuteCommand", params)
+      end
+
+      spawn(work)
     end
 
     Process.sleep(100)
@@ -47,16 +51,18 @@ defmodule GraphConn.ActionApi.HandlerTest do
 
     for _ <- 1..executions do
       assert {:ok, %{"other_handler" => "Echo", "command" => "ls", "timeout" => _}} =
-               ActionInvoker.execute(req_id, _ah_id(), "ExecuteCommand", params)
+               _execute(req_id, "ExecuteCommand", params)
     end
   end
 
   defp _await_no_new_processes(procs_before, deadline) do
+    now = System.monotonic_time(:millisecond)
+
     :erlang.processes()
     |> MapSet.new()
     |> MapSet.difference(procs_before)
     |> MapSet.size()
-    |> _no_new_processes(System.monotonic_time(:millisecond), procs_before, deadline)
+    |> _no_new_processes(now, procs_before, deadline)
   end
 
   defp _no_new_processes(0, _now, _procs_before, _deadline),
@@ -68,6 +74,16 @@ defmodule GraphConn.ActionApi.HandlerTest do
   defp _no_new_processes(_left, _now, procs_before, deadline) do
     Process.sleep(10)
     _await_no_new_processes(procs_before, deadline)
+  end
+
+  defp _execute_new(capability, params, opts \\ []) do
+    req_id = UUID.uuid4()
+    _execute(req_id, capability, params, opts)
+  end
+
+  defp _execute(req_id, capability, params, opts \\ []) do
+    ah_id = _ah_id()
+    ActionInvoker.execute(req_id, ah_id, capability, params, opts)
   end
 
   defp _ah_id do

@@ -31,11 +31,11 @@ defmodule GraphConn.ActionApi.HandlerCrashTest do
     params = %{"command" => "sleep", "hang" => true, "timeout" => 1}
 
     assert {:error, req_id, %{"req_id" => req_id, "action_status" => 13, "action_error" => error}} =
-             ActionInvoker.execute(UUID.uuid4(), _ah_id(), "RunScript", params)
+             _execute_new("RunScript", params)
 
     assert error =~ "1000ms"
 
-    assert {:ok, cached} = Cachex.get(TestActionHandler._request_cache_name(), req_id)
+    assert {:ok, cached} = _cached(req_id)
     assert %{"error" => %{"action_status" => 13}} = Jason.decode!(cached)
   end
 
@@ -49,20 +49,35 @@ defmodule GraphConn.ActionApi.HandlerCrashTest do
     assert error =~ "invalid byte 0xFF"
     assert byte_size(error) < 5_000
 
-    assert {:ok, cached} = Cachex.get(TestActionHandler._request_cache_name(), req_id)
+    assert {:ok, cached} = _cached(req_id)
     assert %{"error" => %{"action_status" => 54}} = Jason.decode!(cached)
   end
 
   test "a crashed execute is cached as its error, so a redelivery never waits on it" do
     {:error, req_id, _error} = _execute(%{"raise" => "capability blew up"})
 
-    assert {:ok, cached} = Cachex.get(TestActionHandler._request_cache_name(), req_id)
+    assert {:ok, cached} = _cached(req_id)
     assert %{"error" => %{"action_status" => 54}} = Jason.decode!(cached)
   end
 
   defp _execute(params) do
     params = Map.merge(%{"command" => "ls"}, params)
-    ActionInvoker.execute(UUID.uuid4(), _ah_id(), "ExecuteCommand", params)
+    _execute_new("ExecuteCommand", params)
+  end
+
+  defp _execute_new(capability, params, opts \\ []) do
+    req_id = UUID.uuid4()
+    _execute(req_id, capability, params, opts)
+  end
+
+  defp _execute(req_id, capability, params, opts) do
+    ah_id = _ah_id()
+    ActionInvoker.execute(req_id, ah_id, capability, params, opts)
+  end
+
+  defp _cached(req_id) do
+    TestActionHandler._request_cache_name()
+    |> Cachex.get(req_id)
   end
 
   defp _ah_id do

@@ -18,11 +18,7 @@ defmodule GraphConn.DefaultCallbacksTest do
   end
 
   test "the default WebSocket callback takes a tuple status" do
-    assert :ok ==
-             Plain.on_status_change(
-               :"action-ws",
-               {:shutdown, "server sent close request: bye"},
-               %{}
-             )
+    status = {:shutdown, "server sent close request: bye"}
+    assert :ok == Plain.on_status_change(:"action-ws", status, %{})
   end
 end

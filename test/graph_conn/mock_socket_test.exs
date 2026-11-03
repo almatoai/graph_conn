@@ -4,9 +4,11 @@ defmodule GraphConn.Test.MockSocketTest do
   alias GraphConn.{Request, TestClient, TestConn}
 
   setup do
-    on_exit(fn ->
+    cleanup = fn ->
       TestClient.stop()
-    end)
+    end
+
+    on_exit(cleanup)
 
     :ok
   end
@@ -42,8 +44,9 @@ defmodule GraphConn.Test.MockSocketTest do
       assert_receive {:conn_status_changed, :"events-ws", :ready}
 
       # Stands in for a second socket sharing this one's routing key, which other clients may too.
-      :ok = _await_registered(_events_key(), System.monotonic_time(:millisecond) + 5_000)
-      {:ok, _owner} = Registry.register(Registry.TestSockets, _events_key(), {})
+      events_key = _events_key()
+      :ok = _await_registered(events_key, System.monotonic_time(:millisecond) + 5_000)
+      {:ok, _owner} = Registry.register(Registry.TestSockets, events_key, {})
 
       assert :ok = TestConn.execute(:"events-ws", %Request{body: %{fake_message: "Hello"}})
 

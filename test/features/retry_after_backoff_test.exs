@@ -21,12 +21,14 @@ defmodule GraphConn.Features.RetryAfterBackoffTest do
   setup do
     TestClient.stop()
 
-    on_exit(fn ->
+    cleanup = fn ->
       Mock.clear_rate_limit("action_invoker")
       Mock.clear_rate_limit(:versions)
       Mock.clear_rate_limit({:ws_upgrade, "invoker"})
       TestClient.stop()
-    end)
+    end
+
+    on_exit(cleanup)
 
     :ok
   end
@@ -43,11 +45,12 @@ defmodule GraphConn.Features.RetryAfterBackoffTest do
       Mock.rate_limit_auth("action_invoker", 1, 2)
 
       # When the client is started
-      {elapsed, _ready} =
-        TestClient.measure(fn ->
-          assert {:ok, _sup_pid} = TestClient.start()
-          assert_receive {:conn_status_changed, :ready}, 15_000
-        end)
+      measured = fn ->
+        assert {:ok, _sup_pid} = TestClient.start()
+        assert_receive {:conn_status_changed, :ready}, 15_000
+      end
+
+      {elapsed, _ready} = TestClient.measure(measured)
 
       # Then it held off until the window the server named had passed, which with a 200ms cap
       # also means the advertised wait beat the cap.
@@ -71,11 +74,12 @@ defmodule GraphConn.Features.RetryAfterBackoffTest do
       Mock.rate_limit_versions(1, 2)
 
       # When the client is started
-      {elapsed, _ready} =
-        TestClient.measure(fn ->
-          assert {:ok, _sup_pid} = TestClient.start()
-          assert_receive {:conn_status_changed, :ready}, 15_000
-        end)
+      measured = fn ->
+        assert {:ok, _sup_pid} = TestClient.start()
+        assert_receive {:conn_status_changed, :ready}, 15_000
+      end
+
+      {elapsed, _ready} = TestClient.measure(measured)
 
       # Then it held off until that window had passed, rather than retrying on the flat one
       # second this path used to use regardless of what the server asked for. One-sided for the
