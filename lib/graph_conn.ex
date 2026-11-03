@@ -13,7 +13,7 @@ defmodule GraphConn do
 
   ```
   defmodule MyConn do
-    use GraphConn, otp_app: :graph_conn
+    use GraphConn, otp_app: :my_app
     require Logger
 
     def on_status_change(new_status, _) do
@@ -51,15 +51,20 @@ defmodule GraphConn do
   Set Graph server details
 
   ```
-  config :graph_conn, MyConn,
-    url: "example.com",
-    port: 8443,
-    insecure: true,
-    credentials: [
-      client_id: "client_id",
-      client_secret: "client_secret",
-      password: "password%",
-      username: "me@arago.de"
+  config :my_app, MyConn,
+    url: "https://graph.example:8443",
+    # Skips TLS verification for WebSocket connections only. REST and auth
+    # requests follow the global `config :graph_conn, insecure: true`.
+    insecure: false,
+    auth: [
+      # Optional; defaults to `url`.
+      url: "https://auth.graph.example:8443",
+      credentials: [
+        client_id: "client_id",
+        client_secret: "client_secret",
+        username: "user@example.com",
+        password: "password%"
+      ]
     ]
   ```
 

@@ -990,6 +990,44 @@ defmodule GraphConn.ConnectionManagerTest do
     end
   end
 
+  describe "parse_urls/1 with an auth url whose scheme differs from the main url's" do
+    test "keeps verifying TLS on an https auth url behind an http main url" do
+      parsed =
+        [url: "http://graph.example:80", insecure: false, auth: [url: "https://auth.example:443"]]
+        |> ConnectionManager.parse_urls()
+
+      assert %{transport: :tls, insecure: false} == _auth_tls(parsed)
+    end
+
+    test "keeps the configured insecure on an https auth url behind an http main url" do
+      parsed =
+        [url: "http://graph.example:80", insecure: true, auth: [url: "https://auth.example:443"]]
+        |> ConnectionManager.parse_urls()
+
+      assert %{transport: :tls, insecure: true} == _auth_tls(parsed)
+    end
+
+    test "takes the auth url's own insecure over the main url's" do
+      parsed =
+        [
+          url: "http://graph.example:80",
+          insecure: true,
+          auth: [url: "https://auth.example:443", insecure: false]
+        ]
+        |> ConnectionManager.parse_urls()
+
+      assert %{transport: :tls, insecure: false} == _auth_tls(parsed)
+    end
+
+    test "never verifies TLS on an http auth url behind an https main url" do
+      parsed =
+        [url: "https://graph.example:443", insecure: false, auth: [url: "http://auth.example:80"]]
+        |> ConnectionManager.parse_urls()
+
+      assert %{transport: :tcp, insecure: true} == _auth_tls(parsed)
+    end
+  end
+
   describe "status/2" do
     setup do
       TestClient.stop()
@@ -1319,6 +1357,13 @@ defmodule GraphConn.ConnectionManagerTest do
       status: status,
       desired_status: desired_status
     }
+  end
+
+  defp _auth_tls(config) do
+    config
+    |> Keyword.fetch!(:auth)
+    |> Keyword.take([:transport, :insecure])
+    |> Map.new()
   end
 
   defp _put_startup_wait(ms),

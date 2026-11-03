@@ -3,6 +3,9 @@ defmodule GraphConn.GraphRestCallsTest do
   import GraphConn.GraphRestCalls
   alias GraphConn.{ConnectionManager, Mock, TestConn}
 
+  # Nothing listens on port 1, so a request sent there is refused at once.
+  @closed_port 1
+
   # doctest GraphConn.GraphRestCalls
 
   describe "get_versions/1" do
@@ -56,6 +59,28 @@ defmodule GraphConn.GraphRestCallsTest do
       _arm_rate_limit("unhinted_rate_limited_client", :no_hint)
 
       assert {:error, {:rate_limited, 0}} == authenticate(TestActionHandler, config, versions)
+    end
+
+    test "posts the token request to the auth url, not the main url" do
+      config =
+        :graph_conn
+        |> Application.get_env(TestConn)
+        |> ConnectionManager.parse_urls()
+
+      {:ok, versions} = get_versions(TestActionHandler, config)
+      main_down = Keyword.put(config, :port, @closed_port)
+
+      assert {:ok, %{token: _token, expires_at: _expires_at}} =
+               authenticate(TestActionHandler, main_down, versions)
+    end
+
+    test "fails when the auth url is down, even with the main url up" do
+      config = _config("separate_auth_url_client")
+      {:ok, versions} = get_versions(TestActionHandler, config)
+      auth_down = Keyword.put(config[:auth], :port, @closed_port)
+      config = Keyword.put(config, :auth, auth_down)
+
+      assert {:error, :econnrefused} == authenticate(TestActionHandler, config, versions)
     end
   end
 

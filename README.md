@@ -38,7 +38,7 @@ Run `mix test` to run ActionInvoker and ActionHandler tests against local mock s
 import Config
 
 config :graph_conn, GraphConn.TestConn,
-  url: "https://ec2-63-33-203-84.eu-west-1.compute.amazonaws.com:8443",
+  url: "https://graph.example:8443",
   insecure: true,
   auth: [
     credentials: [
@@ -50,7 +50,7 @@ config :graph_conn, GraphConn.TestConn,
   ]
 
 config :graph_conn, GraphConn.Test.ActionHandler,
-  url: "https://ec2-63-33-203-84.eu-west-1.compute.amazonaws.com:8443",
+  url: "https://graph.example:8443",
   insecure: true,
   auth: [
     credentials: [
@@ -78,7 +78,7 @@ it can run alongside a consumer's suite. Set `GRAPH_CONN_TEST_PORT` to move it.
 
 ```elixir
 defmodule MyConn do
-  use GraphConn, otp_app: :graph_conn
+  use GraphConn, otp_app: :my_app
   require Logger
 
   def on_status_change(new_status, _) do
@@ -117,14 +117,18 @@ Set Graph server details
 
 ```elixir
 config :my_app, MyConn,
-  url: "https://example.com:8443",
+  url: "https://graph.example:8443",
+  # Skips TLS verification for WebSocket connections only. REST and auth
+  # requests follow the global `config :graph_conn, insecure: true`.
   insecure: false,
   auth: [
+    # Optional; defaults to `url`.
+    url: "https://auth.graph.example:8443",
     credentials: [
       client_id: "client_id",
       client_secret: "client_secret",
-      password: "password%",
-      username: "me@alamto.com"
+      username: "user@example.com",
+      password: "password%"
     ]
   ]
 ```

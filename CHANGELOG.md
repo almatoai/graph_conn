@@ -9,6 +9,7 @@
 - An action invoker whose capabilities or applicabilities fetch fails logs a warning and retries on
   the backoff curve instead of crashing its connection, and `reconfigure/0` returns
   `{:error, reason}` and keeps what it had.
+- The token request goes to the configured `auth` url; it went to the main `url`.
 
 ## Enhancement
 

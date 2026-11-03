@@ -14,7 +14,7 @@ defmodule GraphConn.ActionApi.Invoker do
 
   ```
   defmodule ActionInvoker do
-    use GraphConn.ActionApi.Invoker, otp_app: :hiro_engine
+    use GraphConn.ActionApi.Invoker, otp_app: :my_app
   end
   ```
 
@@ -39,15 +39,20 @@ defmodule GraphConn.ActionApi.Invoker do
   Set Graph server details
 
   ```
-  config :hiro_engine, ActionInvoker,
-    host: "example.com",
-    port: 8443,
-    insecure: true,
-    credentials: [
-      client_id: "client_id",
-      client_secret: "client_secret",
-      password: "password%",
-      username: "me@arago.de"
+  config :my_app, ActionInvoker,
+    url: "https://graph.example:8443",
+    # Skips TLS verification for WebSocket connections only. REST and auth
+    # requests follow the global `config :graph_conn, insecure: true`.
+    insecure: false,
+    auth: [
+      # Optional; defaults to `url`.
+      url: "https://auth.graph.example:8443",
+      credentials: [
+        client_id: "client_id",
+        client_secret: "client_secret",
+        username: "user@example.com",
+        password: "password%"
+      ]
     ]
   ```
 
