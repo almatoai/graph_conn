@@ -22,10 +22,7 @@ defmodule GraphConn.Request do
   def normalize_headers(%Request{headers: headers} = request),
     do: %Request{
       request
-      | headers:
-          Map.new(headers, fn {name, value} ->
-            {_normalize_header_name(name), value}
-          end)
+      | headers: Map.new(headers, fn {name, value} -> {_normalize_header_name(name), value} end)
     }
 
   defp _normalize_header_name(name) when is_atom(name),

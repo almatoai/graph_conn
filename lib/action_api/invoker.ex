@@ -101,11 +101,8 @@ defmodule GraphConn.ActionApi.Invoker do
 
       @ack_timeout 3_000
       @number_of_request_retries 3
-      @request_registry Keyword.get(
-                          unquote(opts),
-                          :request_registry,
-                          LocalRequestRegistry
-                        )
+      @request_registry unquote(opts)
+                        |> Keyword.get(:request_registry, LocalRequestRegistry)
 
       if @request_registry == LocalRequestRegistry do
         @impl Supervisor
@@ -167,8 +164,8 @@ defmodule GraphConn.ActionApi.Invoker do
 
       def on_status_change(new_status, %InvokerState{fetch_retry: retry})
           when is_pid(retry) do
-        message = "Cancelling the pending fetch, status is #{inspect(new_status)}"
-        Logger.debug("[ActionInvoker] #{message}")
+        "[ActionInvoker] Cancelling the pending fetch, status is #{inspect(new_status)}"
+        |> Logger.debug()
 
         release = fn %InvokerState{} = state ->
           {state.fetch_retry, %InvokerState{state | fetch_retry: nil}}
@@ -180,9 +177,8 @@ defmodule GraphConn.ActionApi.Invoker do
       end
 
       def on_status_change(new_status, %InvokerState{status: current_status} = state) do
-        Logger.debug(
-          "[ActionInvoker] Unhandled ActionAPI status change from #{current_status} to #{new_status}"
-        )
+        "[ActionInvoker] Unhandled ActionAPI status change from #{current_status} to #{new_status}"
+        |> Logger.debug()
       end
 
       @impl GraphConn
@@ -201,13 +197,10 @@ defmodule GraphConn.ActionApi.Invoker do
             %InvokerState{}
           ),
           do:
-            RequestRegistry.nack(
-              __MODULE__,
+            __MODULE__
+            |> RequestRegistry.nack(
               msg["id"],
-              %{
-                code: msg["code"],
-                message: msg["message"]
-              },
+              %{code: msg["code"], message: msg["message"]},
               @request_registry
             )
 
@@ -226,10 +219,9 @@ defmodule GraphConn.ActionApi.Invoker do
           # `handle_message/3` with no caller to return to, and the server re-sends a result it
           # was never acked for.
           {:error, reason} ->
-            Logger.warning(
-              "[ActionInvoker] Could not ack #{msg["id"]}: #{inspect(reason)}. " <>
-                "Leaving it for the server to re-send."
-            )
+            ("[ActionInvoker] Could not ack #{msg["id"]}: #{inspect(reason)}. " <>
+               "Leaving it for the server to re-send.")
+            |> Logger.warning()
         end
 
         # Acked first: delivery can wait out a registry that has not seen the request yet.
@@ -258,12 +250,7 @@ defmodule GraphConn.ActionApi.Invoker do
           |> Map.get("retryAfterMs")
           |> RetryAfter.from_ms()
 
-        RequestRegistry.rate_limited(
-          __MODULE__,
-          request_id,
-          retry_after_ms,
-          @request_registry
-        )
+        RequestRegistry.rate_limited(__MODULE__, request_id, retry_after_ms, @request_registry)
       end
 
       # Expected whenever the denied message carried no id of its own: there is no caller to
@@ -272,9 +259,8 @@ defmodule GraphConn.ActionApi.Invoker do
         do: Logger.warning("[ActionInvoker] Rate limited with no request id: #{inspect(msg)}")
 
       def handle_message(:"action-ws", msg, %InvokerState{}) do
-        Logger.error(
-          "[ActionInvoker] Received unexpected message from action-ws: #{inspect(msg)}"
-        )
+        "[ActionInvoker] Received unexpected message from action-ws: #{inspect(msg)}"
+        |> Logger.error()
       end
 
       @doc """
@@ -300,13 +286,15 @@ defmodule GraphConn.ActionApi.Invoker do
               %{String.t() => map()}
               | {:error, {:connection_not_ready, ActionApi.execution_error()}}
       defp _state_of(fun) do
-        _with_state(fn
+        read = fn
           %InvokerState{status: :ready} = state ->
             {fun.(state), state}
 
           %InvokerState{status: status} = state ->
             {{:error, {:connection_not_ready, status}}, state}
-        end)
+        end
+
+        _with_state(read)
       end
 
       @doc """
@@ -316,7 +304,8 @@ defmodule GraphConn.ActionApi.Invoker do
       """
       @spec capability_defaults(capability_name :: String.t()) :: %{String.t() => any()}
       def capability_defaults(capability_name) do
-        case available_capabilities() do
+        available_capabilities()
+        |> case do
           %{} = capabilities ->
             empty_capability = %{"mandatoryParameters" => %{}, "optionalParameters" => %{}}
             capability = Map.get(capabilities, capability_name, empty_capability)
@@ -346,8 +335,9 @@ defmodule GraphConn.ActionApi.Invoker do
             _with_state(fn %InvokerState{} = state -> {:ok, Map.merge(state, token)} end)
 
           {:error, reason} = error ->
-            message = "#{inspect(__MODULE__)} could not reconfigure: #{inspect(reason)}"
-            Logger.warning("[ActionInvoker] #{message}")
+            "[ActionInvoker] #{inspect(__MODULE__)} could not reconfigure: #{inspect(reason)}"
+            |> Logger.warning()
+
             error
         end
       end
@@ -397,19 +387,20 @@ defmodule GraphConn.ActionApi.Invoker do
 
         request =
           %ActionApi.Request{id: request_id} =
-          ActionApi.Request.new(%{
+          %{
             ticket_id: ticket_id,
             handler: action_handler_id,
             capability: capability_name,
             params: params,
             timeout: timeout || Keyword.get(opts, :timeout)
-          })
+          }
+          |> ActionApi.Request.new()
 
         Logger.metadata(req_id: request_id)
 
-        Logger.info(
-          "[ActionInvoker] Executing #{capability_name} on #{action_handler_id} with params #{inspect(params)}"
-        )
+        ("[ActionInvoker] Executing #{capability_name} on #{action_handler_id} " <>
+           "with params #{inspect(params)}")
+        |> Logger.info()
 
         try do
           :ok = RequestRegistry.register(__MODULE__, request_id, @request_registry)
@@ -460,9 +451,8 @@ defmodule GraphConn.ActionApi.Invoker do
           # shape `_execute/4` already promises. No retry here: `ConnectionManager` owns the timer,
           # and a second loop underneath it would just re-hit the limiter.
           {:error, {:rate_limited, retry_after_ms}} ->
-            Logger.warning(
-              "[ActionInvoker] Rate limited, request not sent; retry in #{retry_after_ms}ms"
-            )
+            "[ActionInvoker] Rate limited, request not sent; retry in #{retry_after_ms}ms"
+            |> Logger.warning()
 
             {:error, request_id, {:rate_limited, retry_after_ms}}
 
@@ -689,10 +679,9 @@ defmodule GraphConn.ActionApi.Invoker do
       defp _retry_fetch_later(retry_in, reason, manager_ref) do
         {delay, next_retry_in} = GraphConn.ConnectionManager.__next_retry__(retry_in, 0)
 
-        message =
-          "#{inspect(__MODULE__)} could not fetch #{inspect(reason)}, retrying in #{delay}ms"
-
-        Logger.warning("[ActionInvoker] #{message}")
+        ("[ActionInvoker] #{inspect(__MODULE__)} could not fetch #{inspect(reason)}, " <>
+           "retrying in #{delay}ms")
+        |> Logger.warning()
 
         _await_fetch(delay, next_retry_in, manager_ref)
       end

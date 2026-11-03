@@ -4,8 +4,7 @@ defmodule GraphConn.ClientStateTest do
   alias GraphConn.ClientState
 
   setup do
-    suffix = System.unique_integer([:positive])
-    base_name = Module.concat(__MODULE__, "Client#{suffix}")
+    base_name = Module.concat(__MODULE__, "Client#{System.unique_integer([:positive])}")
     client_state = start_supervised!({ClientState, [base_name, %{count: 0}]})
     %{base_name: base_name, client_state: client_state}
   end

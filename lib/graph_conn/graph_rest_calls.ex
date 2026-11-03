@@ -138,7 +138,9 @@ defmodule GraphConn.GraphRestCalls do
 
       %Finch.Response{body: body} = response ->
         error =
-          case Jason.decode(body) do
+          body
+          |> Jason.decode()
+          |> case do
             {:ok, map} -> map
             {:error, _} -> response
           end
@@ -170,7 +172,9 @@ defmodule GraphConn.GraphRestCalls do
       [{:config, config}] = :ets.lookup(base_name, :config)
 
       token =
-        case :ets.lookup(base_name, :token) do
+        base_name
+        |> :ets.lookup(:token)
+        |> case do
           [{:token, token}] -> token
           [] -> nil
         end
@@ -189,7 +193,9 @@ defmodule GraphConn.GraphRestCalls do
   defp _get_version(base_name, target_api) do
     [{:versions, versions}] = :ets.lookup(base_name, :versions)
 
-    case Map.get(versions, target_api) do
+    versions
+    |> Map.get(target_api)
+    |> case do
       nil -> {:error, {:unknown_api, Map.keys(versions)}}
       version -> {:ok, version}
     end
@@ -240,7 +246,8 @@ defmodule GraphConn.GraphRestCalls do
     do: :error
 
   defp _shoot(%Request{} = request, base_name, config, opts \\ []) do
-    timeout = Keyword.get(opts, :timeout, Keyword.get(config, :timeout, 5_000))
+    config_timeout = Keyword.get(config, :timeout, 5_000)
+    timeout = Keyword.get(opts, :timeout, config_timeout)
 
     uri = _build_uri(request, config)
 
@@ -253,9 +260,16 @@ defmodule GraphConn.GraphRestCalls do
 
     headers = _convert_headers(request.headers, body)
 
-    Logger.debug(fn ->
-      "[GraphRestCaller] Sending #{String.upcase(to_string(request.method))}: #{uri}"
-    end)
+    log = fn ->
+      method =
+        request.method
+        |> to_string()
+        |> String.upcase()
+
+      "[GraphRestCaller] Sending #{method}: #{uri}"
+    end
+
+    Logger.debug(log)
 
     mono_start = System.monotonic_time()
     finch = GraphConn.Supervisor.finch_name(base_name)
@@ -265,28 +279,29 @@ defmodule GraphConn.GraphRestCalls do
       |> Finch.build(uri, headers, body)
       |> Finch.request(finch, receive_timeout: timeout)
 
-    spawn(fn ->
+    instrument = fn ->
       durations = Instrumenter.durations(mono_start)
+      body_received = Map.get(response, :body, "")
 
       measurements =
         %{
           time: DateTime.utc_now(),
           bytes_sent: byte_size(body),
-          bytes_received: byte_size(Map.get(response, :body, ""))
+          bytes_received: byte_size(body_received)
         }
         |> Map.merge(durations)
 
-      Instrumenter.execute(
-        :rest,
-        measurements,
-        %{
-          node: Node.self(),
-          path: request.path,
-          method: request.method,
-          status_code: Map.get(response, :status)
-        }
-      )
-    end)
+      metadata = %{
+        node: Node.self(),
+        path: request.path,
+        method: request.method,
+        status_code: Map.get(response, :status)
+      }
+
+      Instrumenter.execute(:rest, measurements, metadata)
+    end
+
+    spawn(instrument)
 
     response
   end
@@ -316,7 +331,9 @@ defmodule GraphConn.GraphRestCalls do
           {:ok, Response.t()} | {:error, ResponseError.t()}
   defp _process_response(%Finch.Response{body: body} = response) do
     resp =
-      case Jason.decode(body) do
+      body
+      |> Jason.decode()
+      |> case do
         {:ok, result} -> %{response | body: result}
         _ -> response
       end

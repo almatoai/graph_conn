@@ -20,6 +20,10 @@
           # === Project-specific custom checks ===
           {GraphConn.CredoChecks.PrivateFunctionUnderscore, []},
           {GraphConn.CredoChecks.NoPipeInsideCall, []},
+          {GraphConn.CredoChecks.NoNestedCall, []},
+          {GraphConn.CredoChecks.PipeMultilineCall, []},
+          {GraphConn.CredoChecks.PipeIntoCase, []},
+          {GraphConn.CredoChecks.LazyLoggerMessage, []},
 
           # === Consistency ===
           {Credo.Check.Consistency.ExceptionNames, []},

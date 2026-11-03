@@ -18,7 +18,8 @@ defmodule GraphConn.GunTest do
       path = ~c"/api/0.9/action-ws/"
       assert {:ok, conn_pid} = :gun.open(host, port, connect_opts)
       assert Process.alive?(conn_pid)
-      assert {:ok, _protocol} = :gun.await_up(conn_pid, :timer.minutes(1))
+      up_timeout = :timer.minutes(1)
+      assert {:ok, _protocol} = :gun.await_up(conn_pid, up_timeout)
 
       stream_ref = :gun.ws_upgrade(conn_pid, path, [], %{})
 

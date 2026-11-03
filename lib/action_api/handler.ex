@@ -54,23 +54,18 @@ if Code.ensure_loaded?(Cachex) do
         @doc "Starts the action handler supervision tree."
         @spec start_link(config :: nil | Keyword.t()) :: Supervisor.on_start()
         def start_link(config \\ nil) do
-          Supervisor.start_link(__MODULE__, _put_config(config), name: __MODULE__)
+          config = _put_config(config)
+          Supervisor.start_link(__MODULE__, config, name: __MODULE__)
         end
 
         @impl Supervisor
         def init(config) do
+          # Records expire after an hour; cleanup runs every minute.
+          expiration =
+            Cachex.Spec.expiration(default: :timer.minutes(60), interval: :timer.seconds(60))
+
           children = [
-            {Cachex,
-             [
-               name: _request_cache_name(),
-               expiration:
-                 Cachex.Spec.expiration(
-                   # default record expiration
-                   default: :timer.minutes(60),
-                   # how often cleanup should occur
-                   interval: :timer.seconds(60)
-                 )
-             ]},
+            {Cachex, [name: _request_cache_name(), expiration: expiration]},
             {GraphConn.Supervisor, [__MODULE__, {config, %{}}]},
             {Task.Supervisor, [name: _task_supervisor_name()]},
             {ActionApi.Responder, __MODULE__}
@@ -129,9 +124,8 @@ if Code.ensure_loaded?(Cachex) do
           execution_timeout = msg["timeout"] || default_execution_timeout(capability)
           task_fun = _task(req_id, capability, params, execution_timeout)
 
-          Task.Supervisor.start_child(_task_supervisor_name(), task_fun,
-            shutdown: execution_timeout + 500
-          )
+          _task_supervisor_name()
+          |> Task.Supervisor.start_child(task_fun, shutdown: execution_timeout + 500)
         end
 
         # def handle_message(
@@ -147,9 +141,8 @@ if Code.ensure_loaded?(Cachex) do
         # end
 
         def handle_message(:"action-ws", msg, _) do
-          Logger.warning(
-            "[ActionHandler] Received unexpected message from action-ws: #{inspect(msg)}"
-          )
+          "[ActionHandler] Received unexpected message from action-ws: #{inspect(msg)}"
+          |> Logger.warning()
         end
 
         defp _task(req_id, capability, params, execution_timeout) do
@@ -160,10 +153,9 @@ if Code.ensure_loaded?(Cachex) do
 
             _request_cache_name()
             |> Cachex.transaction([req_id], &_claim_or_queue(&1, req_id, task_pid))
-            |> tap(fn _ ->
-              GraphConn.execute(__MODULE__, :"action-ws", %GraphConn.Request{
-                body: %{id: req_id, type: "acknowledged", code: 200, message: ""}
-              })
+            |> tap(fn _claim ->
+              ack = %{id: req_id, type: "acknowledged", code: 200, message: ""}
+              GraphConn.execute(__MODULE__, :"action-ws", %GraphConn.Request{body: ack})
             end)
             |> case do
               {:ok, :execute_action} ->
@@ -238,9 +230,11 @@ if Code.ensure_loaded?(Cachex) do
         defp _respond_with(req_id, response) do
           Logger.info("[ActionHandler] Sending result")
 
+          resend_timeout = resend_response_timeout()
+
           req_id
           |> _result_request(response)
-          |> ActionApi.Responder.return_response(__MODULE__, resend_response_timeout())
+          |> ActionApi.Responder.return_response(__MODULE__, resend_timeout)
         end
 
         # Fitted before it is cached, so a redelivery answered from the cache never carries a
@@ -269,7 +263,9 @@ if Code.ensure_loaded?(Cachex) do
               Jason.encode!(response)
 
             {:error, error} ->
-              case Jason.encode(%{error: error}) do
+              %{error: error}
+              |> Jason.encode()
+              |> case do
                 {:ok, json} -> json
                 _ -> Jason.encode!(%{error: inspect(error)})
               end
@@ -324,11 +320,9 @@ if Code.ensure_loaded?(Cachex) do
           apply(__MODULE__, :execute, [req_id, capability, params])
         catch
           kind, reason ->
-            Logger.error(
-              "[ActionHandler] #{inspect(capability)} crashed: " <>
-                Exception.format(kind, reason, __STACKTRACE__),
-              req_id: req_id
-            )
+            ("[ActionHandler] #{inspect(capability)} crashed: " <>
+               Exception.format(kind, reason, __STACKTRACE__))
+            |> Logger.error(req_id: req_id)
 
             banner = Exception.format_banner(kind, reason)
             {:error, _error(req_id, 54, "Execution failed: #{banner}")}

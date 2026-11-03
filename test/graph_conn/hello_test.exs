@@ -21,10 +21,10 @@ defmodule GraphConn.HelloTest do
     end
 
     test "keeps the last advertised limit while the connection is down" do
-      on_exit(fn -> _await_limit(@handler_limit, _deadline()) end)
+      on_exit(fn -> _await_limit(@handler_limit) end)
 
       GraphConn.Mock.close_ws_connection("handler", 1000, "test drop")
-      _await_dropped(_deadline())
+      _await_dropped()
 
       assert @handler_limit == GraphConn.max_frame_bytes(TestActionHandler, :"action-ws")
     end
@@ -82,13 +82,13 @@ defmodule GraphConn.HelloTest do
     GraphConn.Mock.close_ws_connection("handler", 1000, "test reconnect")
 
     expected = limit || 1_000_000
-    _await_limit(expected, _deadline())
+    _await_limit(expected)
   end
 
   defp _deadline,
     do: System.monotonic_time(:millisecond) + 10_000
 
-  defp _await_dropped(deadline) do
+  defp _await_dropped(deadline \\ _deadline()) do
     cond do
       [{{:"action-ws", :conn_pid}, nil}] ==
           :ets.lookup(TestActionHandler, {:"action-ws", :conn_pid}) ->
@@ -103,7 +103,7 @@ defmodule GraphConn.HelloTest do
     end
   end
 
-  defp _await_limit(expected, deadline) do
+  defp _await_limit(expected, deadline \\ _deadline()) do
     cond do
       expected == GraphConn.max_frame_bytes(TestActionHandler, :"action-ws") and
         :ready == TestActionHandler.status() and _handler_connected?() ->

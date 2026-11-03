@@ -21,10 +21,11 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
   test "answers the caller with the advertised wait instead of resending the request" do
     Mock.deny_next_request("standalone", 1, @retry_after_ms)
 
-    {elapsed, result} =
-      TestClient.measure(fn ->
-        ActionInvoker.execute("ExecuteCommand", %{"command" => "ls", "host" => "localhost"})
-      end)
+    measured = fn ->
+      ActionInvoker.execute("ExecuteCommand", %{"command" => "ls", "host" => "localhost"})
+    end
+
+    {elapsed, result} = TestClient.measure(measured)
 
     assert {:error, request_id, {:rate_limited, @retry_after_ms}} = result
     assert is_binary(request_id)
@@ -49,20 +50,16 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
   end
 
   test "names a denial that carries no request id rather than reporting it as unexpected" do
-    {_returned, log} =
-      with_log(fn ->
-        ActionInvoker.handle_message(
-          :"action-ws",
-          %{
-            "error" => %{
-              "code" => 429,
-              "message" => "Rate limit exceeded",
-              "retryAfterMs" => @retry_after_ms
-            }
-          },
-          %InvokerState{}
-        )
-      end)
+    denial = %{
+      "error" => %{
+        "code" => 429,
+        "message" => "Rate limit exceeded",
+        "retryAfterMs" => @retry_after_ms
+      }
+    }
+
+    logged = fn -> ActionInvoker.handle_message(:"action-ws", denial, %InvokerState{}) end
+    {_returned, log} = with_log(logged)
 
     assert log =~ "Rate limited with no request id"
     assert log =~ "[warning]"
@@ -72,17 +69,10 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
   test "names a denial whose request id is null rather than dropping it silently" do
     # A present-but-null id belongs to no caller either, so it wants the same line an absent one
     # gets. `Map.get/3` and a `"id" => request_id` pattern both read a null key as present.
-    {_returned, log} =
-      with_log(fn ->
-        ActionInvoker.handle_message(
-          :"action-ws",
-          %{
-            "error" => %{"code" => 429, "retryAfterMs" => @retry_after_ms},
-            "id" => nil
-          },
-          %InvokerState{}
-        )
-      end)
+    denial = %{"error" => %{"code" => 429, "retryAfterMs" => @retry_after_ms}, "id" => nil}
+    logged = fn -> ActionInvoker.handle_message(:"action-ws", denial, %InvokerState{}) end
+
+    {_returned, log} = with_log(logged)
 
     assert log =~ "Rate limited with no request id"
   end
@@ -96,11 +86,8 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
         request_id = UUID.uuid4()
         :ok = RequestRegistry.register(ActionInvoker, request_id)
 
-        ActionInvoker.handle_message(
-          :"action-ws",
-          %{"error" => %{"code" => 429, "retryAfterMs" => advertised}, "id" => request_id},
-          %InvokerState{}
-        )
+        denial = %{"error" => %{"code" => 429, "retryAfterMs" => advertised}, "id" => request_id}
+        ActionInvoker.handle_message(:"action-ws", denial, %InvokerState{})
 
         assert_receive {:rate_limited, ^request_id, retry_after_ms}
         RequestRegistry.unregister(ActionInvoker, request_id)
@@ -109,7 +96,8 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
       end
 
     unusable =
-      Enum.reject(reached, fn {_advertised, got} ->
+      reached
+      |> Enum.reject(fn {_advertised, got} ->
         is_integer(got) and got >= 0 and got <= 86_400_000
       end)
 

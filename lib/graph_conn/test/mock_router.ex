@@ -25,12 +25,13 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       GraphConn.Mock.take_versions_rate_limit()
       |> case do
         {:ok, retry_after_seconds} -> _rate_limited(conn, retry_after_seconds)
-        :error -> _success(conn, _apis())
+        :error -> _success(conn, &_apis/0)
       end
     end
 
     get "/api/:_/action/app/:config_id/handlers" do
-      _if_authorized(conn, fn ->
+      conn
+      |> _if_authorized(fn ->
         body = [
           %{
             "ogit/_created-on" => 1_573_742_062_212,
@@ -112,13 +113,18 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         |> Enum.map(fn {key, val} -> {to_string(key), val} end)
         |> Enum.into(%{})
 
-      case conn.params do
-        ^config_credentials -> _success(conn, _credentials(@valid_token))
-        ^handler_credentials -> _success(conn, _credentials(@valid_handler_token))
-        ^event_handler_credentials -> _success(conn, _credentials(@valid_handler_token))
-        ^standalone_credentials -> _success(conn, _credentials(@valid_standalone_token))
-        ^isolated_credentials -> _success(conn, _credentials(@valid_isolated_token))
-        _unknown_credentials -> _unauthorized(conn)
+      conn.params
+      |> case do
+        ^config_credentials -> @valid_token
+        ^handler_credentials -> @valid_handler_token
+        ^event_handler_credentials -> @valid_handler_token
+        ^standalone_credentials -> @valid_standalone_token
+        ^isolated_credentials -> @valid_isolated_token
+        _unknown_credentials -> nil
+      end
+      |> case do
+        nil -> _unauthorized(conn)
+        token -> _success(conn, fn -> _credentials(token) end)
       end
     end
 
@@ -341,9 +347,11 @@ if Code.ensure_loaded?(Plug.Cowboy) do
     end
 
     defp _success(conn, body) do
+      json = Jason.encode!(body)
+
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.send_resp(200, Jason.encode!(body))
+      |> Plug.Conn.send_resp(200, json)
     end
 
     # Mirrors a rate-limiting gateway's reply: whole-second `retry-after` plus a JSON body.
@@ -356,17 +364,21 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         }
       }
 
+      json = Jason.encode!(body)
+
       conn
       |> _put_retry_after(retry_after_seconds)
       |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.send_resp(429, Jason.encode!(body))
+      |> Plug.Conn.send_resp(429, json)
     end
 
     defp _put_retry_after(conn, :no_hint),
       do: conn
 
-    defp _put_retry_after(conn, retry_after_seconds),
-      do: Plug.Conn.put_resp_header(conn, "retry-after", to_string(retry_after_seconds))
+    defp _put_retry_after(conn, retry_after_seconds) do
+      retry_after = to_string(retry_after_seconds)
+      Plug.Conn.put_resp_header(conn, "retry-after", retry_after)
+    end
 
     defp _unauthorized(conn) do
       body = %{
@@ -377,9 +389,11 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         }
       }
 
+      json = Jason.encode!(body)
+
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.send_resp(401, Jason.encode!(body))
+      |> Plug.Conn.send_resp(401, json)
     end
   end
 end

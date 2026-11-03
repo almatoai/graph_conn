@@ -33,8 +33,12 @@ defmodule GraphConn.ClientHello do
     client_hello
     |> Keyword.get(section, [])
     |> case do
-      [] -> frame
-      values -> Map.put(frame, section, Map.new(values))
+      [] ->
+        frame
+
+      values ->
+        section_values = Map.new(values)
+        Map.put(frame, section, section_values)
     end
   end
 
@@ -47,10 +51,12 @@ defmodule GraphConn.ClientHello do
   @doc "Raises `ArgumentError` when `config`'s `:client_hello` is malformed."
   @spec validate!(config :: Keyword.t()) :: :ok
   def validate!(config) do
+    section_names = Keyword.keys(@sections)
+
     client_hello =
       config
       |> Keyword.get(:client_hello, [])
-      |> _keyword!(:client_hello, Keyword.keys(@sections))
+      |> _keyword!(:client_hello, section_names)
 
     for {section, allowed} <- @sections do
       client_hello

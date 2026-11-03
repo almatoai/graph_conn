@@ -63,9 +63,9 @@ defmodule GraphConn.WsConnection do
           token :: String.t()
         ) :: GenServer.on_start()
   def start_link(base_name, api, config, internal_state, version, token) do
-    GenServer.start_link(__MODULE__, {base_name, api, config, internal_state, version, token},
-      name: _name(base_name, api)
-    )
+    init_args = {base_name, api, config, internal_state, version, token}
+    name = _name(base_name, api)
+    GenServer.start_link(__MODULE__, init_args, name: name)
   end
 
   @doc false
@@ -82,6 +82,8 @@ defmodule GraphConn.WsConnection do
   def init({base_name, api, config, internal_state, version, token}) do
     status = {:disconnected, :started}
     path = "#{version.path}?#{_url_params(config)}"
+    default_ping = _default_ping_config()
+    max_frame_bytes = _max_frame_bytes(config)
 
     state =
       %State{
@@ -89,14 +91,14 @@ defmodule GraphConn.WsConnection do
         api: api,
         internal_state: internal_state,
         status: status,
-        ws_ping: Keyword.get(config, :ws_ping, _default_ping_config()),
+        ws_ping: Keyword.get(config, :ws_ping, default_ping),
         last_pong: DateTime.utc_now(),
         client_hello: _client_hello(api, config)
       }
       |> _connect(config)
 
     state
-    |> _ws_upgrade(path, version.subprotocol, token, _max_frame_bytes(config))
+    |> _ws_upgrade(path, version.subprotocol, token, max_frame_bytes)
     |> case do
       {:ok, %State{} = upgraded} -> {:ok, upgraded}
       {:stop, reason} -> {:stop, reason}
@@ -125,13 +127,14 @@ defmodule GraphConn.WsConnection do
 
   @impl GenServer
   def handle_cast({:execute, %Request{} = request}, %State{} = state) do
-    spawn(fn ->
-      Logger.debug(fn ->
-        "[WsConnection] Pushing message to #{state.api}:\n#{inspect(request.body)}"
-      end)
+    push = fn ->
+      log = fn -> "[WsConnection] Pushing message to #{state.api}:\n#{inspect(request.body)}" end
+      Logger.debug(log)
+      body = Jason.encode!(request.body)
+      WS.push(state.conn_pid, state.stream_ref, body)
+    end
 
-      WS.push(state.conn_pid, state.stream_ref, Jason.encode!(request.body))
-    end)
+    spawn(push)
 
     {:noreply, state}
   end
@@ -140,11 +143,12 @@ defmodule GraphConn.WsConnection do
     request_id = UUID.uuid4()
     Logger.info("[WsConnection] Sending #{state.api} the refreshed token")
 
-    WS.push(
-      state.conn_pid,
-      state.stream_ref,
-      Jason.encode!(_token_frame(state.api, token, request_id))
-    )
+    frame =
+      state.api
+      |> _token_frame(token, request_id)
+      |> Jason.encode!()
+
+    WS.push(state.conn_pid, state.stream_ref, frame)
 
     {:noreply, _await_token_answer(state, request_id)}
   end
@@ -156,22 +160,20 @@ defmodule GraphConn.WsConnection do
       ) do
     ws_connection = self()
 
-    spawn(fn ->
-      :ok =
-        Instrumenter.execute(
-          :ws_received_bytes,
-          %{time: DateTime.utc_now(), bytes: byte_size(text)},
-          %{node: Node.self()}
-        )
-
+    receive_text = fn ->
+      measurements = %{time: DateTime.utc_now(), bytes: byte_size(text)}
+      :ok = Instrumenter.execute(:ws_received_bytes, measurements, %{node: Node.self()})
       msg = Jason.decode!(text)
 
-      Logger.debug(fn ->
+      log = fn ->
         "[WsConnection] Just received text message on #{state.api}:\n#{inspect(msg)}"
-      end)
+      end
 
+      Logger.debug(log)
       _handle_message(msg, state, ws_connection)
-    end)
+    end
+
+    spawn(receive_text)
 
     {:noreply, state}
   end
@@ -196,7 +198,8 @@ defmodule GraphConn.WsConnection do
     Logger.debug("[WsConnection] Sending ping")
 
     WS.ping(state.conn_pid, state.stream_ref)
-    Process.send_after(self(), :send_ping, Keyword.get(state.ws_ping, :interval_in_ms))
+    interval = Keyword.get(state.ws_ping, :interval_in_ms)
+    Process.send_after(self(), :send_ping, interval)
     {:noreply, state}
   end
 
@@ -212,16 +215,14 @@ defmodule GraphConn.WsConnection do
     |> DateTime.diff(state.last_pong)
     |> case do
       diff when diff > reconnect_after ->
-        Instrumenter.execute(
-          :ws_lost_connection,
-          %{time: DateTime.utc_now()},
-          %{node: Node.self()}
-        )
+        measurements = %{time: DateTime.utc_now()}
+        Instrumenter.execute(:ws_lost_connection, measurements, %{node: Node.self()})
 
         {:stop, {:error, "Missing pong for more than #{reconnect_after} seconds"}, state}
 
       _ ->
-        Process.send_after(self(), :check_last_pong, Keyword.get(state.ws_ping, :interval_in_ms))
+        interval = Keyword.get(state.ws_ping, :interval_in_ms)
+        Process.send_after(self(), :check_last_pong, interval)
         {:noreply, state}
     end
   end
@@ -234,12 +235,8 @@ defmodule GraphConn.WsConnection do
           {:disconnected, :normal}
 
         _ ->
-          :ok =
-            Instrumenter.execute(
-              :ws_down,
-              %{time: DateTime.utc_now()},
-              %{node: Node.self()}
-            )
+          measurements = %{time: DateTime.utc_now()}
+          :ok = Instrumenter.execute(:ws_down, measurements, %{node: Node.self()})
 
           Logger.warning("WS connection with #{state.api} went down: #{inspect(reason)}")
           {:disconnected, reason}
@@ -335,7 +332,8 @@ defmodule GraphConn.WsConnection do
 
   defp _send_client_hello(%State{client_hello: client_hello} = state) do
     Logger.info("[WsConnection] Sending clientHello: #{inspect(client_hello)}")
-    WS.push(state.conn_pid, state.stream_ref, Jason.encode!(client_hello))
+    frame = Jason.encode!(client_hello)
+    WS.push(state.conn_pid, state.stream_ref, frame)
   end
 
   ## Helper functions
@@ -384,12 +382,14 @@ defmodule GraphConn.WsConnection do
   defp _upgraded(%State{} = state, stream_ref) do
     Logger.info("WebSocket upgrade succeeded.")
 
+    interval = Keyword.get(state.ws_ping, :interval_in_ms)
+
     if Application.get_env(:graph_conn, :proxy) do
       # Something's wrong with sending pings when connected via proxy so we need to do that on our own.
-      Process.send_after(self(), :send_ping, Keyword.get(state.ws_ping, :interval_in_ms))
+      Process.send_after(self(), :send_ping, interval)
     end
 
-    Process.send_after(self(), :check_last_pong, Keyword.get(state.ws_ping, :interval_in_ms))
+    Process.send_after(self(), :check_last_pong, interval)
     %State{state | stream_ref: stream_ref}
   end
 end

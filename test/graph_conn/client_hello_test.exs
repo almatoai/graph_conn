@@ -34,12 +34,8 @@ defmodule GraphConn.ClientHelloTest do
                client: %{app: "my-app", version: "1.2.3"},
                settings: %{redelivery: true}
              } ==
-               ClientHello.frame(
-                 client_hello: [
-                   client: [app: "my-app", version: "1.2.3"],
-                   settings: [redelivery: true]
-                 ]
-               )
+               [client: [app: "my-app", version: "1.2.3"], settings: [redelivery: true]]
+               |> then(&ClientHello.frame(client_hello: &1))
     end
   end
 
@@ -49,13 +45,8 @@ defmodule GraphConn.ClientHelloTest do
     end
 
     test "accepts a complete client_hello" do
-      assert :ok ==
-               ClientHello.validate!(
-                 client_hello: [
-                   client: [app: "my-app", version: "1.2.3"],
-                   settings: [redelivery: false]
-                 ]
-               )
+      client_hello = [client: [app: "my-app", version: "1.2.3"], settings: [redelivery: false]]
+      assert :ok == ClientHello.validate!(client_hello: client_hello)
     end
 
     test "refuses a client_hello that is not a keyword list" do

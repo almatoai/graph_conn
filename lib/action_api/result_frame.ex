@@ -30,6 +30,7 @@ defmodule GraphConn.ActionApi.ResultFrame do
   defp _fit(%Request{body: body} = request, frame_bytes, max_frame_bytes) do
     message = "Response was too big (#{_mb(frame_bytes)} MB, limit #{_mb(max_frame_bytes)} MB)"
     Logger.warning("[ActionHandler] #{message}, sending an error instead", req_id: body.id)
+
     error = %{req_id: body.id, action_status: @too_big_status, action_error: message}
     result = Jason.encode!(%{error: error})
 

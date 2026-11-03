@@ -8,10 +8,12 @@ defmodule GraphConn.ActionApi.InvokerAckTest do
   alias GraphConn.Test.ActionWsReopen
 
   setup do
-    on_exit(fn ->
+    cleanup = fn ->
       Mock.clear_rate_limit({:ws_upgrade, "standalone"})
       ActionWsReopen.await_ws_connection(System.monotonic_time(:millisecond) + 15_000)
-    end)
+    end
+
+    on_exit(cleanup)
 
     :ok
   end
@@ -29,10 +31,11 @@ defmodule GraphConn.ActionApi.InvokerAckTest do
         "result" => ~s({"ok":true})
       }
 
-      {result, log} =
-        with_log(fn ->
-          ActionInvoker.handle_message(:"action-ws", msg, %InvokerState{})
-        end)
+      logged = fn ->
+        ActionInvoker.handle_message(:"action-ws", msg, %InvokerState{})
+      end
+
+      {result, log} = with_log(logged)
 
       assert :ok == result
       assert log =~ "Could not ack req-that-cannot-be-acked"

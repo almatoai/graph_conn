@@ -10,11 +10,13 @@ defmodule GraphConn.RetokenTest do
     TestClient.stop()
     Mock.rotate_tokens(@base_token, true)
 
-    on_exit(fn ->
+    cleanup = fn ->
       TestClient.stop()
       Mock.rotate_tokens(@base_token, false)
       Mock.delay_ws_upgrade("invoker", 0)
-    end)
+    end
+
+    on_exit(cleanup)
 
     assert {:ok, _sup_pid} = TestClient.start()
     assert_receive {:conn_status_changed, :ready}, 15_000
@@ -26,11 +28,11 @@ defmodule GraphConn.RetokenTest do
 
   describe "action-ws, which has no token message" do
     test "is reopened with the refreshed token", %{ws_connection: old, old_token: old_token} do
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
 
       new_token = _current_token()
       assert new_token != old_token
-      assert :ok = _await_upgrade_with(new_token, _deadline())
+      assert :ok = _await_upgrade_with(new_token)
 
       new = _ws_connection()
       assert is_pid(new)
@@ -41,7 +43,7 @@ defmodule GraphConn.RetokenTest do
 
     test "the replaced socket's exit does not reopen it a second time", %{ws_connection: old} do
       old_monitor = Process.monitor(old)
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
       assert_receive {:DOWN, ^old_monitor, :process, ^old, _reason}
       assert_receive {:conn_status_changed, :"action-ws", :ready}
       new = _ws_connection()
@@ -59,8 +61,8 @@ defmodule GraphConn.RetokenTest do
       # Busy inside a system message, it cannot act on the stop until the stop has timed out.
       spawn(fn -> :sys.replace_state(old, &_stall/1, :infinity) end)
 
-      assert :ok = _await_stuck(old, _deadline())
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token, 10_000)
+      assert :ok = _await_stuck(old)
+      assert :ok = _call_manager(:refresh_token, 10_000)
 
       refute Process.alive?(old)
       new = _ws_connection()
@@ -75,16 +77,17 @@ defmodule GraphConn.RetokenTest do
       # A frame the mock takes silently, so the ack proves it went through the reopened socket.
       frame_id = UUID.uuid4()
 
-      caller =
-        Task.async(fn ->
-          Process.sleep(100)
+      work = fn ->
+        Process.sleep(100)
 
-          TestConn.execute(:"action-ws", %Request{body: %{type: "acknowledged", id: frame_id}})
-        end)
+        TestConn.execute(:"action-ws", %Request{body: %{type: "acknowledged", id: frame_id}})
+      end
 
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token, 10_000)
+      caller = Task.async(work)
+
+      assert :ok = _call_manager(:refresh_token, 10_000)
       assert :ok == Task.await(caller, 15_000)
-      assert :ok == _await_acknowledged(frame_id, _deadline())
+      assert :ok == _await_acknowledged(frame_id)
     end
   end
 
@@ -98,11 +101,11 @@ defmodule GraphConn.RetokenTest do
         socket = _ws_connection(@api)
         upgrade_token = _current_token()
 
-        assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+        assert :ok = _call_manager(:refresh_token)
 
         new_token = _current_token()
         assert new_token != upgrade_token
-        assert :ok = _await_token_update(@api, upgrade_token, [new_token], _deadline())
+        assert :ok = _await_token_update(@api, upgrade_token, [new_token])
         assert socket == _ws_connection(@api)
         refute_receive {:conn_status_changed, @api, _status}, 500
       end
@@ -113,9 +116,9 @@ defmodule GraphConn.RetokenTest do
       assert_receive {:conn_status_changed, :"graph-ws", :ready}, 15_000
       upgrade_token = _current_token()
 
-      assert :ok = GenServer.call(_manager_pid(), :refresh_token)
+      assert :ok = _call_manager(:refresh_token)
       new_token = _current_token()
-      assert :ok = _await_token_update(:"graph-ws", upgrade_token, [new_token], _deadline())
+      assert :ok = _await_token_update(:"graph-ws", upgrade_token, [new_token])
 
       refute_receive {:received_message, :"graph-ws", _msg}, 1_000
     end
@@ -125,7 +128,7 @@ defmodule GraphConn.RetokenTest do
     do: System.monotonic_time(:millisecond) + 5_000
 
   # The mock records an upgrade once the socket is up on its side, a moment after the client's.
-  defp _await_upgrade_with(token, deadline) do
+  defp _await_upgrade_with(token, deadline \\ _deadline()) do
     cond do
       token in Mock.ws_upgrades(:"action-ws") ->
         :ok
@@ -139,7 +142,7 @@ defmodule GraphConn.RetokenTest do
     end
   end
 
-  defp _await_acknowledged(frame_id, deadline) do
+  defp _await_acknowledged(frame_id, deadline \\ _deadline()) do
     cond do
       Mock.acknowledged?(frame_id) ->
         :ok
@@ -158,7 +161,7 @@ defmodule GraphConn.RetokenTest do
     ws_state
   end
 
-  defp _await_stuck(pid, deadline) do
+  defp _await_stuck(pid, deadline \\ _deadline()) do
     cond do
       {:current_function, {Process, :sleep, 1}} == Process.info(pid, :current_function) ->
         :ok
@@ -177,7 +180,7 @@ defmodule GraphConn.RetokenTest do
     token
   end
 
-  defp _await_token_update(api, upgrade_token, expected, deadline) do
+  defp _await_token_update(api, upgrade_token, expected, deadline \\ _deadline()) do
     cond do
       expected == Mock.token_updates(api, upgrade_token) ->
         :ok
@@ -198,6 +201,11 @@ defmodule GraphConn.RetokenTest do
       [{_key, pid}] -> pid
       [] -> nil
     end
+  end
+
+  defp _call_manager(message, timeout \\ 5_000) do
+    _manager_pid()
+    |> GenServer.call(message, timeout)
   end
 
   defp _manager_pid do

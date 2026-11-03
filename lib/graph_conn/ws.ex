@@ -29,7 +29,8 @@ defmodule GraphConn.WS do
     port = Tools.to_integer(port)
     connect_opts = _connect_opts(opts, host)
 
-    case _proxy_config() do
+    _proxy_config()
+    |> case do
       nil ->
         host
         |> _connect(port, connect_opts)
@@ -85,8 +86,10 @@ defmodule GraphConn.WS do
   defp _connect(host, port, connect_opts) do
     Logger.info("[GraphConn.WS] Connecting to #{host}:#{port} ...")
 
+    up_timeout = :timer.minutes(1)
+
     with {:ok, conn_pid} <- :gun.open(host, port, connect_opts),
-         {:ok, protocol} <- :gun.await_up(conn_pid, :timer.minutes(1)) do
+         {:ok, protocol} <- :gun.await_up(conn_pid, up_timeout) do
       Logger.info("[GraphConn.WS] Connected to #{host} using #{protocol}")
       {:ok, conn_pid}
     end
@@ -95,15 +98,16 @@ defmodule GraphConn.WS do
   defp _proxy_connect(proxy_config, connect_opts) do
     connect_opts = Enum.into(connect_opts, %{})
 
-    Logger.info(
-      "[GraphConn.WS] Connecting to #{connect_opts[:host]}:#{connect_opts[:port]} via proxy #{proxy_config.address}:#{proxy_config.port} ..."
-    )
+    ("[GraphConn.WS] Connecting to #{connect_opts[:host]}:#{connect_opts[:port]} " <>
+       "via proxy #{proxy_config.address}:#{proxy_config.port} ...")
+    |> Logger.info()
 
     {address, proxy_config} = Map.pop(proxy_config, :address)
     {port, proxy_config} = Map.pop(proxy_config, :port)
+    up_timeout = :timer.minutes(1)
 
     with {:ok, conn_pid} <- :gun.open(address, port, proxy_config),
-         {:ok, :http} <- :gun.await_up(conn_pid, :timer.minutes(1)),
+         {:ok, :http} <- :gun.await_up(conn_pid, up_timeout),
          conn_ref <- :gun.connect(conn_pid, connect_opts),
          {:response, :fin, 200, _headers} <- :gun.await(conn_pid, conn_ref) do
       Logger.info("[GraphConn.WS] Connected to #{connect_opts[:host]} via proxy")
@@ -156,10 +160,12 @@ defmodule GraphConn.WS do
           {false, error}
       end
 
+    now = DateTime.utc_now()
+
     measurements =
       mono_start
       |> Instrumenter.durations()
-      |> Map.put(:time, DateTime.utc_now())
+      |> Map.put(:time, now)
 
     Instrumenter.execute(:ws_upgrade, measurements, %{node: Node.self(), success: success?})
 
@@ -206,7 +212,9 @@ defmodule GraphConn.WS do
         %Response{code: code, headers: headers}
 
       {:gun_response, ^conn_pid, ^stream_ref, :nofin, code, headers} ->
-        case _receive_data(conn_pid, stream_ref) do
+        conn_pid
+        |> _receive_data(stream_ref)
+        |> case do
           {:ok, data} ->
             %Response{code: code, body: data, headers: headers}
 
@@ -269,8 +277,10 @@ defmodule GraphConn.WS do
       |> Keyword.get(:ws_ping, [])
       |> Keyword.get(:interval_in_ms, 5_000)
 
+    default_connect_timeout = :timer.minutes(1)
+
     connect_opts = %{
-      connect_timeout: Keyword.get(opts, :connect_timeout, :timer.minutes(1)),
+      connect_timeout: Keyword.get(opts, :connect_timeout, default_connect_timeout),
       retry: Keyword.get(opts, :retry, 10),
       retry_timeout: Keyword.get(opts, :retry_timeout, 100),
       http_opts: %{keepalive: Keyword.get(opts, :keepalive, :infinity)},
@@ -285,7 +295,8 @@ defmodule GraphConn.WS do
         Map.put(connect_opts, :tls_opts, verify: :verify_none)
 
       false ->
-        Map.put(connect_opts, :tls_opts, _transport_opts(host))
+        tls_opts = _transport_opts(host)
+        Map.put(connect_opts, :tls_opts, tls_opts)
     end
   end
 

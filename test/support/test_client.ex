@@ -56,12 +56,14 @@ defmodule GraphConn.TestClient do
     original = Application.fetch_env(:graph_conn, key)
     Application.put_env(:graph_conn, key, value)
 
-    on_exit(fn ->
+    restore = fn ->
       case original do
         {:ok, previous} -> Application.put_env(:graph_conn, key, previous)
         :error -> Application.delete_env(:graph_conn, key)
       end
-    end)
+    end
+
+    on_exit(restore)
   end
 
   # Both, not just the table: the table dies with `ConnectionManager`, which the supervisor

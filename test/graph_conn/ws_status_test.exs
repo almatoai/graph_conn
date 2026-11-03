@@ -7,10 +7,12 @@ defmodule GraphConn.WsStatusTest do
   setup do
     :ok = ActionWsReopen.await_ws_connection(System.monotonic_time(:millisecond) + 15_000)
 
-    on_exit(fn ->
+    cleanup = fn ->
       Mock.clear_rate_limit({:ws_upgrade, "standalone"})
       ActionWsReopen.await_ws_connection(System.monotonic_time(:millisecond) + 15_000)
-    end)
+    end
+
+    on_exit(cleanup)
 
     :ok
   end

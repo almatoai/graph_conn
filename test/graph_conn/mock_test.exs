@@ -5,7 +5,8 @@ defmodule GraphConn.MockTest do
   describe "capabilities" do
     test "returns default capabilities from config" do
       assert Application.get_env(:graph_conn, :mock)[:capabilities] == Mock.get_capabilities()
-      refute Enum.empty?(Mock.get_capabilities())
+      capabilities = Mock.get_capabilities()
+      refute Enum.empty?(capabilities)
     end
 
     test "returns default and added capabilities" do
@@ -15,7 +16,7 @@ defmodule GraphConn.MockTest do
 
       assert :ok = Mock.put_capabilities(new_capabilities)
       assert %{"on_condition_test" => %{}} = Mock.get_capabilities()
-      assert Enum.count(Mock.get_capabilities()) > 1
+      assert Mock.get_capabilities() |> Enum.count() > 1
     end
   end
 

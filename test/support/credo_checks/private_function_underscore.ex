@@ -49,7 +49,8 @@ defmodule GraphConn.CredoChecks.PrivateFunctionUnderscore do
   end
 
   defp _issue(issue_meta, meta, name) do
-    format_issue(issue_meta,
+    issue_meta
+    |> format_issue(
       message: "Private function `#{name}` must start with `_`",
       line_no: meta[:line]
     )

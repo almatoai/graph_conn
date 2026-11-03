@@ -16,6 +16,8 @@ defmodule GraphConn.MixProject do
 
   @spec project() :: keyword()
   def project do
+    env = Mix.env()
+
     [
       app: :graph_conn,
       version: "1.11.3",
@@ -43,7 +45,7 @@ defmodule GraphConn.MixProject do
       deps: _deps(),
       aliases: _aliases(),
       hex: [ignore_advisories: @ignored_hex_advisories],
-      elixirc_paths: _elixirc_paths(Mix.env())
+      elixirc_paths: _elixirc_paths(env)
     ]
   end
 

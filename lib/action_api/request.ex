@@ -50,9 +50,10 @@ defmodule GraphConn.ActionApi.Request do
   # sobelow_skip ["Crypto.WeakHash"]
   def _calculate_id(payload) do
     term = {payload.ticket_id, payload.handler, payload.capability, payload.params}
+    binary = :erlang.term_to_binary(term)
 
     :md5
-    |> :crypto.hash(:erlang.term_to_binary(term))
+    |> :crypto.hash(binary)
     |> Base.encode32(padding: false)
   end
 end

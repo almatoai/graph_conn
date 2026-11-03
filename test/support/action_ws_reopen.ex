@@ -45,7 +45,7 @@ defmodule GraphConn.Test.ActionWsReopen do
   @spec await_ws_connection(deadline :: integer()) :: :ok
   def await_ws_connection(deadline) do
     cond do
-      is_pid(conn_pid()) ->
+      conn_pid() |> is_pid() ->
         :ok
 
       System.monotonic_time(:millisecond) < deadline ->

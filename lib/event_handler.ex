@@ -44,7 +44,8 @@ defmodule GraphConn.EventHandler do
       @doc "Starts the event handler supervision tree."
       @spec start_link(config :: nil | Keyword.t()) :: Supervisor.on_start()
       def start_link(config \\ nil) do
-        Supervisor.start_link(__MODULE__, _put_config(config), name: __MODULE__)
+        config = _put_config(config)
+        Supervisor.start_link(__MODULE__, config, name: __MODULE__)
       end
 
       @impl Supervisor
@@ -119,29 +120,20 @@ defmodule GraphConn.EventHandler do
 
       @doc false
       def handle_message_default(:"events-ws", msg, _) do
-        Logger.warning(
-          "[EventHandler] Received unexpected message from events-ws: #{inspect(msg)}"
-        )
+        "[EventHandler] Received unexpected message from events-ws: #{inspect(msg)}"
+        |> Logger.warning()
       end
 
       @doc "Sends a `register` message to the events-ws upstream with `args` as the filter."
       def register(args) do
-        GraphConn.execute(__MODULE__, :"events-ws", %GraphConn.Request{
-          body: %{
-            type: "register",
-            args: args
-          }
-        })
+        request = %GraphConn.Request{body: %{type: "register", args: args}}
+        GraphConn.execute(__MODULE__, :"events-ws", request)
       end
 
       @doc "Sends a `subscribe` message to the events-ws upstream using the configured `scope_id`."
       def subscribe do
-        GraphConn.execute(__MODULE__, :"events-ws", %GraphConn.Request{
-          body: %{
-            type: "subscribe",
-            id: _get_config()[:scope_id]
-          }
-        })
+        request = %GraphConn.Request{body: %{type: "subscribe", id: _get_config()[:scope_id]}}
+        GraphConn.execute(__MODULE__, :"events-ws", request)
       end
 
       @doc false

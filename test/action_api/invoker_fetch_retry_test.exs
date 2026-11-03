@@ -203,8 +203,7 @@ defmodule GraphConn.ActionApi.InvokerFetchRetryTest do
     end
 
     test "survives a 401 when a configChanged message makes it reconfigure" do
-      test_pid = self()
-      Process.register(test_pid, IsolatedInvoker.Observer)
+      Process.register(self(), IsolatedInvoker.Observer)
       :ok = _await_isolated_socket()
       manager_ref = _monitor_connection_manager()
       Mock.fail_action_fetch(@token, "capabilities", 1, {:status, 401, ""})
@@ -327,9 +326,10 @@ defmodule GraphConn.ActionApi.InvokerFetchRetryTest do
         _await_stacktrace(pid, matches?, deadline)
 
       true ->
-        flunk(
+        message =
           "#{inspect(pid)} never reached the awaited stacktrace, last: #{inspect(stacktrace)}"
-        )
+
+        flunk(message)
     end
   end
 
