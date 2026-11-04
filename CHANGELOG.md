@@ -1,8 +1,14 @@
 # Changelog
 
-⚠️ **Breaking changes** in [1.11.0](#1110), [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
+⚠️ **Breaking changes** in [1.12.0](#1120), [1.11.0](#1110), [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
 
-# 1.11.3
+# 1.12.0 <a id="1120"></a>
+
+## Breaking
+
+- A `503` error frame for a request fails it at once with the frame's error map
+  (`%{"code" => 503, ...}`); it used to be resent (up to 3 times) and usually end in
+  `{:ack_timeout, _}`.
 
 ## Fix
 
@@ -16,6 +22,9 @@
 - `GraphConn.Mock.fail_action_fetch/4` fails a client's next capabilities or applicabilities
   fetches, and `GraphConn.Test.MockServer.valid_isolated_invoker_credentials/0` gives a test its
   own invoker identity to arm it against.
+- `GraphConn.Mock.fail_next_request_unavailable/2` answers a client's next requests with a `503`
+  error frame instead of an ack, and `GraphConn.Mock.ignore_next_request/2` leaves them
+  unanswered.
 
 # 1.11.2
 

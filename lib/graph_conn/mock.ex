@@ -247,6 +247,9 @@ defmodule GraphConn.Mock do
 
   The gateway answers a denied message on the open socket rather than closing it, so the client
   sees an error frame where it expected an ack.
+
+  `deny_next_request/3`, `fail_next_request_unavailable/2` and `ignore_next_request/2` share one
+  arming key: arming one replaces whatever another armed.
   """
   @spec deny_next_request(
           client_type :: String.t(),
@@ -255,6 +258,30 @@ defmodule GraphConn.Mock do
         ) :: :ok
   def deny_next_request(client_type, times, retry_after_ms),
     do: _arm({@request_deny_key, client_type}, times, retry_after_ms)
+
+  @doc """
+  Arms the mock to answer the next `times` `submitAction`s from `client_type` with an in-band
+  `503` error frame carrying the request's id, instead of acking them.
+
+  What a gateway answers on the open socket when the service behind it is down.
+
+  `deny_next_request/3`, `fail_next_request_unavailable/2` and `ignore_next_request/2` share one
+  arming key: arming one replaces whatever another armed.
+  """
+  @spec fail_next_request_unavailable(client_type :: String.t(), times :: pos_integer()) :: :ok
+  def fail_next_request_unavailable(client_type, times),
+    do: _arm({@request_deny_key, client_type}, times, :upstream_unavailable)
+
+  @doc """
+  Arms the mock to leave the next `times` `submitAction`s from `client_type` unanswered: no ack, no
+  error frame and no handler, so the invoker waits out its ack timeout.
+
+  `deny_next_request/3`, `fail_next_request_unavailable/2` and `ignore_next_request/2` share one
+  arming key: arming one replaces whatever another armed.
+  """
+  @spec ignore_next_request(client_type :: String.t(), times :: pos_integer()) :: :ok
+  def ignore_next_request(client_type, times),
+    do: _arm({@request_deny_key, client_type}, times, :ignore)
 
   @doc """
   Arms the mock to ack the next `times` `submitAction`s from `client_type` without handing them to
@@ -271,7 +298,7 @@ defmodule GraphConn.Mock do
 
   @doc false
   @spec take_request_denial(client_type :: String.t()) ::
-          {:ok, retry_after_ms :: pos_integer()} | :error
+          {:ok, retry_after_ms :: pos_integer() | :upstream_unavailable | :ignore} | :error
   def take_request_denial(client_type),
     do: _take_rate_limit({@request_deny_key, client_type})
 
