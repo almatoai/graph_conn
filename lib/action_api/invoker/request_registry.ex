@@ -57,26 +57,33 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
   end
 
   @doc """
-  Sends `{:rate_limited, request_id, retry_after_ms}` to every process registered for
-  `request_id`.
+  Sends `{:refused, request_id, reason}` to every process registered for `request_id`.
 
-  The gateway answers a denied request on the open socket instead of acking it, so the caller is
-  told to wait rather than left to time out and resend into the same limiter.
+  The gateway answers a refused request on the open socket instead of acking it, so the caller
+  gets `reason` at once rather than timing out and resending into the same refusal.
+
+  Returns `:no_caller` when nobody is registered for `request_id`.
   """
-  @spec rate_limited(
+  @spec refused(
           base_name :: atom(),
           request_id :: String.t(),
-          retry_after_ms :: non_neg_integer(),
+          reason ::
+            {:rate_limited, retry_after_ms :: non_neg_integer()}
+            | GraphConn.ActionApi.error_frame(),
           registry :: module()
-        ) :: :ok
-  def rate_limited(base_name, request_id, retry_after_ms, registry \\ LocalRequestRegistry) do
+        ) :: :ok | :no_caller
+  def refused(base_name, request_id, reason, registry \\ LocalRequestRegistry) do
     base_name
     |> name()
     |> registry.lookup(request_id)
     |> List.wrap()
-    |> Enum.each(fn pid -> send(pid, {:rate_limited, request_id, retry_after_ms}) end)
+    |> case do
+      [] ->
+        :no_caller
 
-    :ok
+      pids ->
+        Enum.each(pids, fn pid -> send(pid, {:refused, request_id, reason}) end)
+    end
   end
 
   @doc """

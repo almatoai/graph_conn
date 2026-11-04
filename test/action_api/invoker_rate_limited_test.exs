@@ -18,6 +18,53 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
     :ok
   end
 
+  test "logs a denial the caller acts on as before" do
+    Mock.deny_next_request("standalone", 1, @retry_after_ms)
+
+    executed = fn ->
+      ActionInvoker.execute("ExecuteCommand", %{"command" => "ls", "host" => "localhost"})
+    end
+
+    {_result, log} = with_log(executed)
+
+    assert log =~ "[ActionInvoker] Rate limited, retry in #{@retry_after_ms}ms"
+  end
+
+  test "takes a denial from a node still on the old message shape" do
+    Mock.ignore_next_request("standalone", 1)
+    caller = self()
+
+    # What a node before 1.12.0 sends a caller whose request was denied.
+    old_node = fn ->
+      request_id = _await_registered(caller)
+      send(caller, {:rate_limited, request_id, @retry_after_ms})
+    end
+
+    spawn_link(old_node)
+
+    measured = fn ->
+      ActionInvoker.execute("ExecuteCommand", %{"command" => "ls", "host" => "localhost"})
+    end
+
+    {elapsed, result} = TestClient.measure(measured)
+
+    assert {:error, _request_id, {:rate_limited, @retry_after_ms}} = result
+    assert elapsed < 3_000
+  end
+
+  test "names a denial for a request no caller is waiting on" do
+    request_id = UUID.uuid4()
+    denial = %{"error" => %{"code" => 429, "retryAfterMs" => @retry_after_ms}, "id" => request_id}
+
+    logged = fn -> ActionInvoker.handle_message(:"action-ws", denial, %InvokerState{}) end
+    {_returned, log} = with_log(logged)
+
+    assert log =~ "[warning]"
+    assert log =~ "no waiting caller"
+    assert log =~ request_id
+    assert log =~ "rate_limited"
+  end
+
   test "answers the caller with the advertised wait instead of resending the request" do
     Mock.deny_next_request("standalone", 1, @retry_after_ms)
 
@@ -89,7 +136,7 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
         denial = %{"error" => %{"code" => 429, "retryAfterMs" => advertised}, "id" => request_id}
         ActionInvoker.handle_message(:"action-ws", denial, %InvokerState{})
 
-        assert_receive {:rate_limited, ^request_id, retry_after_ms}
+        assert_receive {:refused, ^request_id, {:rate_limited, retry_after_ms}}
         RequestRegistry.unregister(ActionInvoker, request_id)
 
         {advertised, retry_after_ms}
@@ -102,5 +149,19 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
       end)
 
     assert [] == unusable, "reached the caller unusable: #{inspect(unusable)}"
+  end
+
+  defp _await_registered(caller) do
+    ActionInvoker
+    |> RequestRegistry.name()
+    |> Registry.select([{{:"$1", :"$2", :_}, [{:==, :"$2", caller}], [:"$1"]}])
+    |> case do
+      [request_id] ->
+        request_id
+
+      [] ->
+        Process.sleep(10)
+        _await_registered(caller)
+    end
   end
 end

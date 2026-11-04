@@ -20,6 +20,10 @@ defmodule GraphConn.ActionApi do
     Only a rate limit produces this. `retry_after_ms` is how long to wait before retrying, in
     milliseconds, and is `0` once the window has already passed. A duration rather than a
     timestamp, so it stays meaningful when the error is passed on to another node.
+  - `%{"code" => 503, "message" => message}` - The gateway on the action socket answered the
+    request with a `503` instead of acking it. This is the frame's own `"error"` map, with any
+    other keys it carries.
+    The request is not resent.
   - `{:not_sent, reason}` - Request was never sent, because the connection could not be
     established. Distinct from `{:rate_limited, _}`, which is the only one worth waiting on, and
     from `{:nack, _}`, which means the Graph received the request and rejected it.
@@ -38,5 +42,9 @@ defmodule GraphConn.ActionApi do
           | {:handler_returned_timeout, timeout :: pos_integer()}
           | {:nack, error :: term()}
           | {:rate_limited, retry_after_ms :: non_neg_integer()}
+          | error_frame()
           | {:not_sent, reason :: term()}
+
+  @typedoc "An error frame's `\"error\"` map as the gateway on the action socket sent it."
+  @type error_frame() :: %{required(String.t()) => term()}
 end

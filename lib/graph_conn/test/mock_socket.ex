@@ -199,6 +199,12 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       client_type
       |> GraphConn.Mock.take_request_denial()
       |> case do
+        {:ok, :upstream_unavailable} ->
+          _unavailable(state, id)
+
+        {:ok, :ignore} ->
+          :ok
+
         {:ok, retry_after_ms} ->
           _deny(state, id, retry_after_ms)
 
@@ -297,6 +303,16 @@ if Code.ensure_loaded?(Plug.Cowboy) do
           "message" => "Rate limit exceeded",
           "retryAfterMs" => retry_after_ms
         },
+        "id" => id
+      }
+      |> Jason.encode!()
+      |> then(&_broadcast(state.registry_key, &1))
+    end
+
+    # What a gateway answers on the open socket when the service behind it is down.
+    defp _unavailable(state, id) do
+      %{
+        "error" => %{"code" => 503, "message" => "Upstream unavailable", "upstream" => "action"},
         "id" => id
       }
       |> Jason.encode!()

@@ -237,13 +237,10 @@ defmodule GraphConn.ActionApi.Invoker do
       def handle_message(:"action-ws", %{"type" => "configChanged"} = msg, %InvokerState{}),
         do: on_config_changed()
 
-      # Only a `429`: it says the request was refused and resending it is what a limiter is asking
-      # us not to do. A `503` on the same socket is transient, so resending it is arguably right
-      # and it keeps the existing path.
-      #
-      # A denial arrives on the open socket in place of the ack, carrying the request's own id.
-      # Answering the caller is what stops `_await_ack/4` timing out and resending into the
-      # limiter; a denial with no id belongs to nobody here and falls through to the clause below.
+      # A `429` or a `503` arrives on the open socket in place of the ack, carrying the request's
+      # own id. Answering the caller at once is what stops `_await_ack/4` timing out and resending
+      # into a limiter that asked for a wait, or into an upstream that is down. A refusal with no
+      # id belongs to no caller here and is only logged.
       def handle_message(
             :"action-ws",
             %{"error" => %{"code" => 429} = error, "id" => request_id},
@@ -255,7 +252,17 @@ defmodule GraphConn.ActionApi.Invoker do
           |> Map.get("retryAfterMs")
           |> RetryAfter.from_ms()
 
-        RequestRegistry.rate_limited(__MODULE__, request_id, retry_after_ms, @request_registry)
+        _refuse(request_id, {:rate_limited, retry_after_ms})
+      end
+
+      def handle_message(
+            :"action-ws",
+            %{"error" => %{"code" => 503} = error, "id" => request_id},
+            %InvokerState{}
+          )
+          when is_binary(request_id) do
+        # The frame's own error map, as callers already map `%{"code", "message"}` errors.
+        _refuse(request_id, error)
       end
 
       # Expected whenever the denied message carried no id of its own: there is no caller to
@@ -263,9 +270,29 @@ defmodule GraphConn.ActionApi.Invoker do
       def handle_message(:"action-ws", %{"error" => %{"code" => 429}} = msg, %InvokerState{}),
         do: Logger.warning("[ActionInvoker] Rate limited with no request id: #{inspect(msg)}")
 
+      def handle_message(:"action-ws", %{"error" => %{"code" => 503}} = msg, %InvokerState{}) do
+        "[ActionInvoker] Upstream unavailable with no request id: #{inspect(msg)}"
+        |> Logger.warning()
+      end
+
       def handle_message(:"action-ws", msg, %InvokerState{}) do
         "[ActionInvoker] Received unexpected message from action-ws: #{inspect(msg)}"
         |> Logger.error()
+      end
+
+      # A refusal can outlive its caller, who gave up or got an answer first.
+      defp _refuse(request_id, reason) do
+        __MODULE__
+        |> RequestRegistry.refused(request_id, reason, @request_registry)
+        |> case do
+          :ok ->
+            :ok
+
+          :no_caller ->
+            ("[ActionInvoker] Refusal of request #{request_id} found no waiting caller: " <>
+               inspect(reason))
+            |> Logger.warning()
+        end
       end
 
       @doc """
@@ -413,6 +440,21 @@ defmodule GraphConn.ActionApi.Invoker do
           _execute(request, ack_timeout)
         after
           RequestRegistry.unregister(__MODULE__, request_id, @request_registry)
+          # The caller may be a long-lived process: leave nothing for this request in its mailbox.
+          _flush_stale(request_id)
+        end
+      end
+
+      # An ack or refusal answers one send. Left in the mailbox, a late one for an earlier send
+      # would answer the next send's `_await_ack/4` before that send's own answer arrives.
+      defp _flush_stale(request_id) do
+        receive do
+          {:ack, ^request_id} -> _flush_stale(request_id)
+          {:nack, ^request_id, _error} -> _flush_stale(request_id)
+          {:refused, ^request_id, _reason} -> _flush_stale(request_id)
+          {:rate_limited, ^request_id, _retry_after_ms} -> _flush_stale(request_id)
+        after
+          0 -> :ok
         end
       end
 
@@ -444,6 +486,7 @@ defmodule GraphConn.ActionApi.Invoker do
              last_call?
            ) do
         Logger.info("[ActionInvoker] Sending request to server")
+        _flush_stale(request_id)
 
         __MODULE__
         |> GraphConn.execute(:"action-ws", %GraphConn.Request{body: request})
@@ -487,9 +530,16 @@ defmodule GraphConn.ActionApi.Invoker do
             Logger.info("[ActionInvoker] Ack received")
             _await_response(request, ack_timeout, last_call?)
 
+          {:refused, ^request_id, {:rate_limited, retry_after_ms}} ->
+            _rate_limited(request_id, retry_after_ms)
+
+          # For mixed-version clusters: a node before 1.12.0 sends a 429 to its caller this way.
           {:rate_limited, ^request_id, retry_after_ms} ->
-            Logger.warning("[ActionInvoker] Rate limited, retry in #{retry_after_ms}ms")
-            {:error, request_id, {:rate_limited, retry_after_ms}}
+            _rate_limited(request_id, retry_after_ms)
+
+          {:refused, ^request_id, error} ->
+            Logger.warning("[ActionInvoker] Upstream unavailable: #{inspect(error)}")
+            {:error, request_id, error}
 
           {:nack, ^request_id, %{code: 404} = error} ->
             {:error, request_id, {:nack, error}}
@@ -502,6 +552,11 @@ defmodule GraphConn.ActionApi.Invoker do
             Logger.warning("[ActionInvoker] Message ack timeout after: #{ack_timeout}ms")
             _execute(request, ack_timeout, attempt + 1, last_call?)
         end
+      end
+
+      defp _rate_limited(request_id, retry_after_ms) do
+        Logger.warning("[ActionInvoker] Rate limited, retry in #{retry_after_ms}ms")
+        {:error, request_id, {:rate_limited, retry_after_ms}}
       end
 
       defp _await_response(
