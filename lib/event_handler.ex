@@ -3,8 +3,6 @@ defmodule GraphConn.EventHandler do
   event websocket handler behaviour
   """
 
-  @callback default_execution_timeout(String.t()) :: non_neg_integer()
-  @callback resend_response_timeout() :: non_neg_integer()
   @callback handle_event(event :: %{String.t() => any}) :: {:ok, term()} | {:error, term()}
   @callback register() ::
               :ok
@@ -137,20 +135,12 @@ defmodule GraphConn.EventHandler do
       end
 
       @doc false
-      def default_execution_timeout(_event),
-        do: 60_000
-
-      @doc false
-      def resend_response_timeout,
-        do: 3_000
-
-      @doc false
       def handle_event(event) do
         Logger.warning("[EventHandler] Unhandled event message: #{event}")
         {:ok, :ignored}
       end
 
-      defoverridable default_execution_timeout: 1, resend_response_timeout: 0, handle_event: 1
+      defoverridable handle_event: 1
     end
   end
 end
