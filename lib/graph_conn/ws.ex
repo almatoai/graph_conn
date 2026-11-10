@@ -7,6 +7,35 @@ defmodule GraphConn.WS do
   alias GraphConn.{Instrumenter, Response, RetryAfter, Tools}
   require Logger
 
+  # gun is an optional dependency: a REST-only consumer compiles this module without it.
+  @compile {:no_warn_undefined, :gun}
+
+  @gun_missing "GraphConn needs the optional :gun dependency for WebSocket connections. " <>
+                 ~s(Add {:gun, "~> 2.1"} to your deps.)
+
+  @doc """
+  Returns `:ok` when `gun` is loadable, else raises a `RuntimeError` naming the dep to add.
+  """
+  @spec ensure_available!(gun :: module()) :: :ok
+  def ensure_available!(gun \\ :gun) do
+    if Code.ensure_loaded?(gun),
+      do: :ok,
+      else: raise(@gun_missing)
+  end
+
+  @doc """
+  Returns `:ok` when `gun` is loadable, else raises a `CompileError` at the `use` in `env`.
+  """
+  @spec ensure_compilable!(env :: Macro.Env.t(), gun :: module()) :: :ok
+  def ensure_compilable!(%Macro.Env{} = env, gun \\ :gun) do
+    if Code.ensure_loaded?(gun) do
+      :ok
+    else
+      description = "#{inspect(env.module)} opens a WebSocket connection. #{@gun_missing}"
+      raise CompileError, file: env.file, line: env.line, description: description
+    end
+  end
+
   @doc """
   Opens connection for given `host` @ given `port`.
 

@@ -1,6 +1,8 @@
 defmodule GraphConn.EventHandler do
   @moduledoc """
   event websocket handler behaviour
+
+  Needs the optional `:gun` dependency: `{:gun, "~> 2.1"}` in your deps.
   """
 
   @callback handle_event(event :: %{String.t() => any}) :: {:ok, term()} | {:error, term()}
@@ -11,6 +13,8 @@ defmodule GraphConn.EventHandler do
               | {:error, {:unknown_api, [any()]}}
 
   defmacro __using__(opts \\ []) do
+    :ok = GraphConn.WS.ensure_compilable!(__CALLER__)
+
     quote location: :keep do
       use Supervisor
       @behaviour GraphConn

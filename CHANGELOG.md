@@ -6,6 +6,10 @@
 
 ## Breaking
 
+- `gun` is an optional dependency: a module using `GraphConn.EventHandler`,
+  `GraphConn.ActionApi.Handler` or `GraphConn.ActionApi.Invoker` must add `{:gun, "~> 2.1"}` to its
+  own deps, and fails to compile without it; `open_ws_connection/2`, or `execute/3` on a WebSocket
+  api, raises without it.
 - `GraphConn.EventHandler` no longer has the unused `default_execution_timeout/1` and
   `resend_response_timeout/0` callbacks, nor the default functions it defined for them: calling one
   is an undefined function, and implementing one with `@impl` gets a warning.
@@ -15,6 +19,8 @@
 
 ## Fix
 
+- An action handler resends an unacked response every `resend_response_timeout/0` ms until it is
+  acked; the interval used to double on each resend.
 - An action invoker whose capabilities or applicabilities fetch fails logs a warning and retries on
   the backoff curve instead of crashing its connection, and `reconfigure/0` returns
   `{:error, reason}` and keeps what it had.
@@ -22,8 +28,6 @@
 
 ## Enhancement
 
-- An action handler resends an unacked response every `resend_response_timeout/0` ms until it is
-  acked; the interval used to double on each resend.
 - `GraphConn.Mock.fail_action_fetch/4` fails a client's next capabilities or applicabilities
   fetches, and `GraphConn.Test.MockServer.valid_isolated_invoker_credentials/0` gives a test its
   own invoker identity to arm it against.

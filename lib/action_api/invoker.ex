@@ -5,7 +5,7 @@ defmodule GraphConn.ActionApi.Invoker do
   meaning it will issue actions and will expect responses back.
 
   It keeps pool of connections for all REST calls and has one opened websocket connection
-  for action-ws api.
+  for action-ws api, so it needs the optional `:gun` dependency: `{:gun, "~> 2.1"}` in your deps.
 
   ## Usage
 
@@ -94,6 +94,8 @@ defmodule GraphConn.ActionApi.Invoker do
 
   @doc false
   defmacro __using__(opts \\ []) do
+    :ok = GraphConn.WS.ensure_compilable!(__CALLER__)
+
     quote location: :keep do
       use Supervisor
       @behaviour GraphConn

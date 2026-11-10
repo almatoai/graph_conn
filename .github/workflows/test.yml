@@ -65,3 +65,6 @@ jobs:
           REQUIRE_PROXY_TESTS: "true"
         run: mix bless
 
+      - name: Build a consumer without gun
+        run: mix no_gun
+

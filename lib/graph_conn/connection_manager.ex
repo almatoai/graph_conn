@@ -34,6 +34,7 @@ defmodule GraphConn.ConnectionManager do
     Request,
     Response,
     ResponseError,
+    WS,
     WsConnection,
     WsConnections
   }
@@ -130,7 +131,8 @@ defmodule GraphConn.ConnectionManager do
 
   @doc """
   Executes `request` against `target_api`. REST APIs go via HTTP; WS APIs are
-  dispatched through the associated WebSocket connection.
+  dispatched through the associated WebSocket connection, and raise when the optional `:gun`
+  dependency is missing.
 
   Returns `{:error, :not_started}` if no connection is ready for `base_name` (see
   `_await_versions/1`), or `{:error, {:rate_limited, retry_after_ms}}` if a WS API's connection is
@@ -169,11 +171,14 @@ defmodule GraphConn.ConnectionManager do
   @doc """
   Asynchronously opens a WebSocket connection to `target_api` if not already
   open. Returns `:ok` immediately; status changes are reported via the
-  `on_status_change/3` callback.
+  `on_status_change/3` callback. Raises at once when the optional `:gun` dependency is missing.
   """
   @spec open_ws_connection(base_name :: atom(), target_api :: atom()) ::
           :ok | {:error, {:unknown_api, [atom()]}}
   def open_ws_connection(base_name, target_api) do
+    # Checked here, in the caller: past the cast a missing gun would only crash the connection.
+    :ok = WS.ensure_available!()
+
     base_name
     |> _name()
     |> GenServer.cast({:open_ws_connection, target_api})
@@ -955,6 +960,8 @@ defmodule GraphConn.ConnectionManager do
         {:ok, conn_pid}
 
       [] ->
+        :ok = WS.ensure_available!()
+
         base_name
         |> _name()
         |> GenServer.call({:open_ws_connection, target_api})

@@ -69,7 +69,8 @@ defmodule GraphConn.MixProject do
   defp _deps do
     [
       {:elixir_uuid, "~> 1.2"},
-      {:gun, "~> 2.1"},
+      ## needed for WebSocket connections (event handlers, action handlers and invokers) only
+      {:gun, "~> 2.1", optional: true},
       {:finch, "~> 0.10"},
       {:ssl_verify_fun, "~> 1.1"},
       {:certifi, "~> 2.12"},
@@ -120,6 +121,8 @@ defmodule GraphConn.MixProject do
         "cmd mix test --only feature",
         "dialyzer"
       ],
+      # A consumer without gun must build, and get a clear error from the WebSocket behaviours.
+      no_gun: "cmd fixtures/no_gun/check.sh",
       # credo loads the custom checks from the build without compiling it, so it could run stale ones
       credo: ["compile", "credo"]
     ]
