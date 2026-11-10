@@ -6,6 +6,9 @@
 
 ## Breaking
 
+- `GraphConn.EventHandler` no longer has the unused `default_execution_timeout/1` and
+  `resend_response_timeout/0` callbacks, nor the default functions it defined for them: calling one
+  is an undefined function, and implementing one with `@impl` gets a warning.
 - A `503` error frame for a request fails it at once with the frame's error map
   (`%{"code" => 503, ...}`); it used to be resent (up to 3 times) and usually end in
   `{:ack_timeout, _}`.
