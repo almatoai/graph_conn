@@ -7,7 +7,12 @@ if Code.ensure_loaded?(Cachex) do
     """
 
     @callback default_execution_timeout(String.t()) :: non_neg_integer()
-    @callback resend_response_timeout() :: non_neg_integer()
+
+    @doc """
+    Milliseconds between resends of a response the upstream has not acked; it is resent at this
+    fixed interval until acked. Must be positive. Defaults to `3_000`.
+    """
+    @callback resend_response_timeout() :: pos_integer()
     @callback execute(
                 req_id :: String.t(),
                 capability :: String.t(),

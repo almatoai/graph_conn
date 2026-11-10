@@ -4,8 +4,8 @@ defmodule GraphConn.ActionApi.Responder do
 
   When the action-ws upstream takes longer than the caller's timeout, the
   invoker stores its `from` reference here so that a later upstream response
-  can still be returned via `GenServer.reply/2`. Also handles resends after a
-  delay when the connection drops mid-flight.
+  can still be returned via `GenServer.reply/2`. Also resends an unacked response at a fixed
+  interval until the upstream acks it.
   """
 
   use GenServer
@@ -29,12 +29,13 @@ defmodule GraphConn.ActionApi.Responder do
     do: {:ok, %{base_name: base_name, responses: %{}}}
 
   @doc """
-  Sends `response` via action-ws and registers it for resend after `resend_after`
-  ms in case the upstream doesn't ack.
+  Sends `response` via action-ws and registers it for resend every `resend_after` ms until the
+  upstream acks it.
   """
   @spec return_response(GraphConn.Request.t(), base_name :: atom(), resend_after :: pos_integer()) ::
           term()
-  def return_response(%GraphConn.Request{} = response, base_name, resend_after) do
+  def return_response(%GraphConn.Request{} = response, base_name, resend_after)
+      when is_integer(resend_after) and resend_after > 0 do
     response = _fit_frame(response, base_name)
 
     base_name
@@ -42,6 +43,14 @@ defmodule GraphConn.ActionApi.Responder do
     |> GenServer.cast({:register_response, response, resend_after})
 
     GraphConn.execute(base_name, :"action-ws", response)
+  end
+
+  # A fixed interval of 0 would resend in a hot loop forever.
+  def return_response(%GraphConn.Request{}, _base_name, resend_after) do
+    message =
+      "resend_response_timeout/0 must return a positive integer, got: #{inspect(resend_after)}"
+
+    raise ArgumentError, message
   end
 
   @doc "Cancels any pending resend for `req_id` once it has been acked upstream."
@@ -90,9 +99,8 @@ defmodule GraphConn.ActionApi.Responder do
   end
 
   @impl GenServer
+  # Re-armed at the same interval each time, with no give-up, until the response is acked.
   def handle_info({:resend_response, req_id, resend_after}, state) do
-    resend_after = resend_after * 2
-
     responses =
       if Map.has_key?(state.responses, req_id) do
         {%GraphConn.Request{} = response, _} = Map.get(state.responses, req_id)

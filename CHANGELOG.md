@@ -19,6 +19,8 @@
 
 ## Enhancement
 
+- An action handler resends an unacked response every `resend_response_timeout/0` ms until it is
+  acked; the interval used to double on each resend.
 - `GraphConn.Mock.fail_action_fetch/4` fails a client's next capabilities or applicabilities
   fetches, and `GraphConn.Test.MockServer.valid_isolated_invoker_credentials/0` gives a test its
   own invoker identity to arm it against.
