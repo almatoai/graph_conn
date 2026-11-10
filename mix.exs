@@ -4,13 +4,8 @@ defmodule GraphConn.MixProject do
   # Advisories waived for `hex.audit` (Hex/OSV ids). `@ignored_advisories` below is the
   # separate list `deps.audit` reads; an id in the wrong list is silently ignored.
   #
-  # EEF-CVE-2026-43966 — still flagged on cowlib 2.21.0. cow_http_struct_hd:escape_string/2
-  #   serialises outgoing headers; gun never calls it and cowboy here serves only the test mock
-  #   server
-  #
   # GHSA-w4f7-4cxr-rv3c — self-inconsistent for gun, see `@ignored_advisories` below
   @ignored_hex_advisories [
-    "EEF-CVE-2026-43966",
     "GHSA-w4f7-4cxr-rv3c"
   ]
 
@@ -104,8 +99,8 @@ defmodule GraphConn.MixProject do
 
   # Ignored advisories.
   #   GHSA-w4f7-4cxr-rv3c — self-inconsistent for gun: affected `< 2.4.0`, yet "patched" in
-  #   2.16.0, which is cowboy's fix and no gun version, so OSV and mix_audit flag gun 2.7.0.
-  #   The real flaw is in cowlib, waived as EEF-CVE-2026-43966 in `@ignored_hex_advisories`.
+  #   2.16.0, which is cowboy's fix and no gun version, so OSV and mix_audit flag gun 2.8.0.
+  #   The real flaw is in cowlib, fixed in the locked 2.22.0.
   @ignored_advisories "GHSA-w4f7-4cxr-rv3c"
 
   # `bless` is an alias (not a Mix.Task module) so the opinionated checks below
