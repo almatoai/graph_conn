@@ -4,6 +4,8 @@ if Code.ensure_loaded?(Cachex) do
     This module is behaviour that should be used in module that will represent
     main entry point for communication with Graph Action API in a role of action handler,
     meaning it will receive action requests, execute them agains environment and return response back.
+
+    Needs the optional `:gun` dependency: `{:gun, "~> 2.1"}` in your deps.
     """
 
     @callback default_execution_timeout(String.t()) :: non_neg_integer()
@@ -21,6 +23,8 @@ if Code.ensure_loaded?(Cachex) do
                 {:ok, term()} | {:error, term()}
 
     defmacro __using__(opts \\ []) do
+      :ok = GraphConn.WS.ensure_compilable!(__CALLER__)
+
       quote location: :keep do
         use Supervisor
         @behaviour GraphConn

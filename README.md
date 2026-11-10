@@ -15,6 +15,18 @@ def deps do
 end
 ```
 
+`gun` is an optional dependency, used only for WebSocket connections. To open them, add it to your
+own deps:
+
+```elixir
+{:gun, "~> 2.1"}
+```
+
+Without it, a module that uses `GraphConn.EventHandler`, `GraphConn.ActionApi.Handler` or
+`GraphConn.ActionApi.Invoker` fails to compile, and `GraphConn.open_ws_connection/2`, or
+`GraphConn.execute/3` on a WebSocket api, raises; both say what to add. A REST-only client
+(`use GraphConn`) needs nothing more.
+
 ## Telemetry
 
 Sends telemetry events:

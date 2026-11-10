@@ -3,7 +3,7 @@
     %{
       name: "default",
       files: %{
-        included: ["lib/", "test/", "config/", "mix.exs"],
+        included: ["lib/", "test/", "config/", "fixtures/", "mix.exs"],
         excluded: [~r"/_build/", ~r"/deps/", ~r"/node_modules/"]
       },
       plugins: [],
