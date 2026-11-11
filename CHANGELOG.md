@@ -16,21 +16,33 @@
 - A `503` error frame for a request fails it at once with the frame's error map
   (`%{"code" => 503, ...}`); it used to be resent (up to 3 times) and usually end in
   `{:ack_timeout, _}`.
+- During a rolling upgrade with a distributed request registry, a 1.11 caller does not understand a
+  `503` refusal sent by a 1.12 node: it times out and resends as before, and the message stays in
+  its mailbox.
 
 ## Fix
 
 - An action handler resends an unacked response every `resend_response_timeout/0` ms until it is
   acked; the interval used to double on each resend.
 - An action invoker whose capabilities or applicabilities fetch fails logs a warning and retries on
-  the backoff curve instead of crashing its connection, and `reconfigure/0` returns
-  `{:error, reason}` and keeps what it had.
+  the backoff curve instead of crashing its connection, waiting at least the advertised
+  `retry-after` on a `429`; `reconfigure/0` returns `{:error, reason}` and keeps what it had, with
+  `{path, {:rate_limited, retry_after_ms}}` as the reason on a `429`.
 - The token request goes to the configured `auth` url; it went to the main `url`.
+- A response that arrives after `execute/5` gave up on it no longer answers the next identical
+  `execute/5` from the same process.
+
+## Deprecation
+
+- `GraphConn.ActionApi.Invoker.RequestRegistry.rate_limited/4` is deprecated in favour of
+  `refused/4` with `{:rate_limited, retry_after_ms}`, which sends the same message.
 
 ## Enhancement
 
 - `GraphConn.Mock.fail_action_fetch/4` fails a client's next capabilities or applicabilities
-  fetches, and `GraphConn.Test.MockServer.valid_isolated_invoker_credentials/0` gives a test its
-  own invoker identity to arm it against.
+  fetches, or answers them `429` with a `retry-after`, and
+  `GraphConn.Test.MockServer.valid_isolated_invoker_credentials/0` gives a test its own invoker
+  identity to arm it against.
 - `GraphConn.Mock.fail_next_request_unavailable/2` answers a client's next requests with a `503`
   error frame instead of an ack, and `GraphConn.Mock.ignore_next_request/2` leaves them
   unanswered.

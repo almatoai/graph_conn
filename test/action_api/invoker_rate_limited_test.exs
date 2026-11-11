@@ -52,6 +52,28 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
     assert elapsed < 3_000
   end
 
+  test "takes a denial from a 1.12.0-pre01 node as a rate limit" do
+    Mock.ignore_next_request("standalone", 1)
+    caller = self()
+
+    pre01_node = fn ->
+      request_id = _await_registered(caller)
+      send(caller, {:refused, request_id, {:rate_limited, @retry_after_ms}})
+    end
+
+    spawn_link(pre01_node)
+
+    executed = fn ->
+      ActionInvoker.execute("ExecuteCommand", %{"command" => "ls", "host" => "localhost"})
+    end
+
+    {result, log} = with_log(executed)
+
+    assert {:error, _request_id, {:rate_limited, @retry_after_ms}} = result
+    assert log =~ "[ActionInvoker] Rate limited, retry in #{@retry_after_ms}ms"
+    refute log =~ "Upstream unavailable"
+  end
+
   test "names a denial for a request no caller is waiting on" do
     request_id = UUID.uuid4()
     denial = %{"error" => %{"code" => 429, "retryAfterMs" => @retry_after_ms}, "id" => request_id}
@@ -136,7 +158,7 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
         denial = %{"error" => %{"code" => 429, "retryAfterMs" => advertised}, "id" => request_id}
         ActionInvoker.handle_message(:"action-ws", denial, %InvokerState{})
 
-        assert_receive {:refused, ^request_id, {:rate_limited, retry_after_ms}}
+        assert_receive {:rate_limited, ^request_id, retry_after_ms}
         RequestRegistry.unregister(ActionInvoker, request_id)
 
         {advertised, retry_after_ms}

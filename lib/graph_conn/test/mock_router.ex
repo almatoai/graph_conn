@@ -319,6 +319,9 @@ if Code.ensure_loaded?(Plug.Cowboy) do
           |> Plug.Conn.put_resp_content_type("application/json")
           |> Plug.Conn.send_resp(status, body)
 
+        {:ok, {:rate_limited, retry_after_seconds}} ->
+          _rate_limited(conn, retry_after_seconds)
+
         # Held past the client's own receive timeout, then answered to nobody.
         {:ok, {:hang, hang_ms}} ->
           Process.sleep(hang_ms)

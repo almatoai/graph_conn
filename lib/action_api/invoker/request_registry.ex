@@ -57,10 +57,12 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
   end
 
   @doc """
-  Sends `{:refused, request_id, reason}` to every process registered for `request_id`.
+  Tells every process registered for `request_id` that the request was refused.
 
   The gateway answers a refused request on the open socket instead of acking it, so the caller
-  gets `reason` at once rather than timing out and resending into the same refusal.
+  gets `reason` at once rather than timing out and resending into the same refusal. A rate limit
+  is sent as `{:rate_limited, request_id, retry_after_ms}`, which a caller on a node before
+  1.12.0 also reads; any other reason as `{:refused, request_id, reason}`.
 
   Returns `:no_caller` when nobody is registered for `request_id`.
   """
@@ -82,9 +84,32 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistry do
         :no_caller
 
       pids ->
-        Enum.each(pids, fn pid -> send(pid, {:refused, request_id, reason}) end)
+        message = _refusal(request_id, reason)
+        Enum.each(pids, &send(&1, message))
     end
   end
+
+  @doc """
+  Sends `{:rate_limited, request_id, retry_after_ms}` to every process registered for
+  `request_id`.
+  """
+  @deprecated "Use refused/4 with {:rate_limited, retry_after_ms} instead"
+  @spec rate_limited(
+          base_name :: atom(),
+          request_id :: String.t(),
+          retry_after_ms :: non_neg_integer(),
+          registry :: module()
+        ) :: :ok
+  def rate_limited(base_name, request_id, retry_after_ms, registry \\ LocalRequestRegistry) do
+    refused(base_name, request_id, {:rate_limited, retry_after_ms}, registry)
+    :ok
+  end
+
+  defp _refusal(request_id, {:rate_limited, retry_after_ms}),
+    do: {:rate_limited, request_id, retry_after_ms}
+
+  defp _refusal(request_id, reason),
+    do: {:refused, request_id, reason}
 
   @doc """
   Sends `{:nack, request_id, %{code: error_code, message: error_description}}`
