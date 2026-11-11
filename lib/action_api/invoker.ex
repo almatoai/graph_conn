@@ -442,23 +442,59 @@ defmodule GraphConn.ActionApi.Invoker do
           _execute(request, ack_timeout)
         after
           RequestRegistry.unregister(__MODULE__, request_id, @request_registry)
-          # The caller may be a long-lived process: leave nothing for this request in its mailbox.
-          _flush_stale(request_id)
+
+          # Request ids are content hashes, so anything left for this one would answer the next
+          # identical call from this process.
+          _flush_stale(request_id, :drop)
+          _drain_responses(request_id)
         end
       end
 
-      # An ack or refusal answers one send. Left in the mailbox, a late one for an earlier send
-      # would answer the next send's `_await_ack/4` before that send's own answer arrives.
-      defp _flush_stale(request_id) do
+      # Only on the way out: a response that lands while a send is retried still answers it.
+      defp _drain_responses(request_id) do
         receive do
-          {:ack, ^request_id} -> _flush_stale(request_id)
-          {:nack, ^request_id, _error} -> _flush_stale(request_id)
-          {:refused, ^request_id, _reason} -> _flush_stale(request_id)
-          {:rate_limited, ^request_id, _retry_after_ms} -> _flush_stale(request_id)
+          {:response, ^request_id, _response} -> _drain_responses(request_id)
         after
           0 -> :ok
         end
       end
+
+      # An ack or refusal answers one send. Left in the mailbox, a late one for an earlier send
+      # would answer the next send's `_await_ack/4` before that send's own answer arrives. A
+      # refusal for a send whose ack wait ran out still holds, so with `:answer` it fails the
+      # request rather than letting it resend into the same refusal.
+      @spec _flush_stale(request_id :: String.t(), refusals :: :drop | :answer) ::
+              :ok | {:error, request_id :: String.t(), ActionApi.execution_error()}
+      defp _flush_stale(request_id, refusals) do
+        receive do
+          {:ack, ^request_id} ->
+            _flush_stale(request_id, refusals)
+
+          {:nack, ^request_id, _error} ->
+            _flush_stale(request_id, refusals)
+
+          {:refused, ^request_id, reason} when refusals == :answer ->
+            _refused(request_id, reason)
+
+          {:rate_limited, ^request_id, retry_after_ms} when refusals == :answer ->
+            _rate_limited(request_id, retry_after_ms)
+
+          {:refused, ^request_id, _reason} ->
+            _flush_stale(request_id, refusals)
+
+          {:rate_limited, ^request_id, _retry_after_ms} ->
+            _flush_stale(request_id, refusals)
+        after
+          0 -> :ok
+        end
+      end
+
+      # Every send after the first of a round follows an ack wait that ran out.
+      defp _refusals_after(1),
+        do: :drop
+
+      defp _refusals_after(_attempt),
+        do: :answer
 
       defp _inject_defaults(params, capability_name) do
         capability_name
@@ -477,9 +513,15 @@ defmodule GraphConn.ActionApi.Invoker do
               | {:error, request_id :: String.t(), ActionApi.execution_error()}
       defp _execute(request, ack_timeout, attempt \\ 1, last_call? \\ false)
 
-      defp _execute(%ActionApi.Request{} = request, ack_timeout, attempt, _)
-           when attempt > @number_of_request_retries,
-           do: {:error, request.id, {:ack_timeout, ack_timeout * @number_of_request_retries}}
+      defp _execute(%ActionApi.Request{id: request_id}, ack_timeout, attempt, _last_call?)
+           when attempt > @number_of_request_retries do
+        request_id
+        |> _flush_stale(:answer)
+        |> case do
+          :ok -> {:error, request_id, {:ack_timeout, ack_timeout * @number_of_request_retries}}
+          refused -> refused
+        end
+      end
 
       defp _execute(
              %ActionApi.Request{id: request_id} = request,
@@ -487,8 +529,18 @@ defmodule GraphConn.ActionApi.Invoker do
              attempt,
              last_call?
            ) do
+        refusals = _refusals_after(attempt)
+
+        request_id
+        |> _flush_stale(refusals)
+        |> case do
+          :ok -> _send(request, ack_timeout, attempt, last_call?)
+          refused -> refused
+        end
+      end
+
+      defp _send(%ActionApi.Request{id: request_id} = request, ack_timeout, attempt, last_call?) do
         Logger.info("[ActionInvoker] Sending request to server")
-        _flush_stale(request_id)
 
         __MODULE__
         |> GraphConn.execute(:"action-ws", %GraphConn.Request{body: request})
@@ -532,16 +584,11 @@ defmodule GraphConn.ActionApi.Invoker do
             Logger.info("[ActionInvoker] Ack received")
             _await_response(request, ack_timeout, last_call?)
 
-          {:refused, ^request_id, {:rate_limited, retry_after_ms}} ->
-            _rate_limited(request_id, retry_after_ms)
-
-          # For mixed-version clusters: a node before 1.12.0 sends a 429 to its caller this way.
           {:rate_limited, ^request_id, retry_after_ms} ->
             _rate_limited(request_id, retry_after_ms)
 
-          {:refused, ^request_id, error} ->
-            Logger.warning("[ActionInvoker] Upstream unavailable: #{inspect(error)}")
-            {:error, request_id, error}
+          {:refused, ^request_id, reason} ->
+            _refused(request_id, reason)
 
           {:nack, ^request_id, %{code: 404} = error} ->
             {:error, request_id, {:nack, error}}
@@ -554,6 +601,15 @@ defmodule GraphConn.ActionApi.Invoker do
             Logger.warning("[ActionInvoker] Message ack timeout after: #{ack_timeout}ms")
             _execute(request, ack_timeout, attempt + 1, last_call?)
         end
+      end
+
+      # 1.12.0-pre01 sent a 429 as `{:refused, id, {:rate_limited, ms}}`.
+      defp _refused(request_id, {:rate_limited, retry_after_ms}),
+        do: _rate_limited(request_id, retry_after_ms)
+
+      defp _refused(request_id, error) do
+        Logger.warning("[ActionInvoker] Upstream unavailable: #{inspect(error)}")
+        {:error, request_id, error}
       end
 
       defp _rate_limited(request_id, retry_after_ms) do
@@ -644,11 +700,24 @@ defmodule GraphConn.ActionApi.Invoker do
         __MODULE__
         |> GraphConn.execute(:action, %GraphConn.Request{path: path})
         |> case do
-          {:ok, %GraphConn.Response{code: 200, body: body}} -> {:ok, body}
+          {:ok, %GraphConn.Response{code: 200, body: body}} ->
+            {:ok, body}
+
+          {:ok, %GraphConn.Response{code: 429, headers: headers}} ->
+            _rate_limited_fetch(path, headers)
+
           # The body is left out: an error page can be large and says nothing the status does not.
-          {:ok, %GraphConn.Response{code: code}} -> {:error, {path, {:status, code}}}
-          {:error, error} -> {:error, {path, error}}
+          {:ok, %GraphConn.Response{code: code}} ->
+            {:error, {path, {:status, code}}}
+
+          {:error, error} ->
+            {:error, {path, error}}
         end
+      end
+
+      defp _rate_limited_fetch(path, headers) do
+        {:error, rate_limited} = RetryAfter.rate_limited(headers)
+        {:error, {path, rate_limited}}
       end
 
       # A live pending fetch owns it; a second one would race it.
@@ -739,7 +808,10 @@ defmodule GraphConn.ActionApi.Invoker do
       end
 
       defp _retry_fetch_later(retry_in, reason, manager_ref) do
-        {delay, next_retry_in} = GraphConn.ConnectionManager.__next_retry__(retry_in, 0)
+        advertised_ms = _advertised_wait(reason)
+
+        {delay, next_retry_in} =
+          GraphConn.ConnectionManager.__next_retry__(retry_in, advertised_ms)
 
         ("[ActionInvoker] #{inspect(__MODULE__)} could not fetch #{inspect(reason)}, " <>
            "retrying in #{delay}ms")
@@ -747,6 +819,13 @@ defmodule GraphConn.ActionApi.Invoker do
 
         _await_fetch(delay, next_retry_in, manager_ref)
       end
+
+      # A 429's retry-after is the floor of the next wait; anything else backs off on the curve.
+      defp _advertised_wait({_path, {:rate_limited, wait_in_ms}}),
+        do: wait_in_ms
+
+      defp _advertised_wait(_reason),
+        do: 0
 
       @doc """
       Default handler for `configChanged` messages from action-ws. Override in

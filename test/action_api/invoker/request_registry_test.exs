@@ -49,6 +49,38 @@ defmodule GraphConn.ActionApi.Invoker.RequestRegistryTest do
     end
   end
 
+  describe "refused/4" do
+    test "sends a rate limit as {:rate_limited, id, ms}, which a node before 1.12.0 also reads" do
+      :ok = RequestRegistry.register(__MODULE__, "123")
+      :ok = RequestRegistry.refused(__MODULE__, "123", {:rate_limited, 1_986})
+      assert_receive {:rate_limited, "123", 1_986}
+    end
+
+    test "sends any other refusal as {:refused, id, reason}" do
+      error = %{"code" => 503, "message" => "Upstream unavailable"}
+      :ok = RequestRegistry.register(__MODULE__, "123")
+      :ok = RequestRegistry.refused(__MODULE__, "123", error)
+      assert_receive {:refused, "123", ^error}
+    end
+
+    test "is :no_caller when nobody is registered for the request" do
+      assert :no_caller == RequestRegistry.refused(__MODULE__, "456", {:rate_limited, 1_986})
+    end
+  end
+
+  describe "rate_limited/4" do
+    # Reached through the context: a call the compiler can resolve warns that it is deprecated.
+    setup do
+      %{registry: RequestRegistry}
+    end
+
+    test "still tells the caller to wait, as it did before refused/4", %{registry: registry} do
+      :ok = RequestRegistry.register(__MODULE__, "123")
+      assert :ok == registry.rate_limited(__MODULE__, "123", 1_986)
+      assert_receive {:rate_limited, "123", 1_986}
+    end
+  end
+
   describe ":response message" do
     test "is received for registered request_id" do
       :ok = RequestRegistry.register(__MODULE__, "123")

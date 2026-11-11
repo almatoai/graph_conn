@@ -8,7 +8,7 @@ defmodule GraphConn.ActionApi.InvokerFetchRetryTest do
   import ExUnit.CaptureLog, only: [with_log: 1]
 
   alias GraphConn.ActionApi.Invoker.State, as: InvokerState
-  alias GraphConn.{ClientState, Mock}
+  alias GraphConn.{ClientState, Mock, TestClient}
   alias GraphConn.Test.IsolatedInvoker
 
   @token "action_isolated"
@@ -49,6 +49,22 @@ defmodule GraphConn.ActionApi.InvokerFetchRetryTest do
       assert [warning] = _fetch_warnings(log)
       assert warning =~ "applicabilities"
       assert warning =~ "timeout"
+    end
+
+    test "waits out the retry-after a 429 on the capabilities fetch advertises before fetching again" do
+      # Past the longest first retry on the default backoff curve, so only the advertised wait
+      # can hold the fetch back this long.
+      retry_after_seconds = 3
+      Mock.fail_action_fetch(@token, "capabilities", 1, {:rate_limited, retry_after_seconds})
+
+      started_and_ready = fn ->
+        _start_invoker()
+        _await_ready(@ready_deadline_ms + retry_after_seconds * 1_000)
+      end
+
+      {elapsed, :ok} = TestClient.measure(started_and_ready)
+
+      assert elapsed >= retry_after_seconds * 1_000
     end
 
     test "survives a 401 on the first capabilities fetch and becomes ready" do
@@ -190,6 +206,11 @@ defmodule GraphConn.ActionApi.InvokerFetchRetryTest do
 
       assert {:error, _reason} = IsolatedInvoker.reconfigure()
       assert capabilities == IsolatedInvoker.available_capabilities()
+    end
+
+    test "returns the advertised wait when the capabilities fetch is answered 429" do
+      Mock.fail_action_fetch(@token, "capabilities", 1, {:rate_limited, 2})
+      assert {:error, {"capabilities", {:rate_limited, 2_000}}} == IsolatedInvoker.reconfigure()
     end
 
     test "a state update that raises fails only its caller, leaving the client up" do

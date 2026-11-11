@@ -207,20 +207,28 @@ defmodule GraphConn.Mock do
   @doc """
   Arms the mock to fail the next `times` fetches of the action api's `path` (`"capabilities"` or
   `"applicabilities"`) made with `token`: `{:status, status, body}` answers with that status and
-  body, `{:hang, hang_ms}` holds the reply for `hang_ms` so the client times out first.
+  body, `{:rate_limited, retry_after_seconds}` answers `429` advertising that wait, `{:hang, hang_ms}`
+  holds the reply for `hang_ms` so the client times out first.
   """
   @spec fail_action_fetch(
           token :: String.t(),
           path :: String.t(),
           times :: pos_integer(),
-          failure :: {:status, pos_integer(), body :: String.t()} | {:hang, pos_integer()}
+          failure ::
+            {:status, pos_integer(), body :: String.t()}
+            | {:rate_limited, retry_after_seconds :: pos_integer()}
+            | {:hang, pos_integer()}
         ) :: :ok
   def fail_action_fetch(token, path, times, failure),
     do: _arm({@action_fetch_key, token, path}, times, failure)
 
   @doc false
   @spec take_action_fetch_failure(token :: String.t() | nil, path :: String.t()) ::
-          {:ok, {:status, pos_integer(), body :: String.t()} | {:hang, pos_integer()}} | :error
+          {:ok,
+           {:status, pos_integer(), body :: String.t()}
+           | {:rate_limited, retry_after_seconds :: pos_integer()}
+           | {:hang, pos_integer()}}
+          | :error
   def take_action_fetch_failure(token, path),
     do: _take_rate_limit({@action_fetch_key, token, path})
 
