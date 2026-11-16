@@ -2,7 +2,7 @@ defmodule GraphConn.WsConnection do
   @moduledoc false
 
   use GenServer
-  alias GraphConn.{ClientHello, ConnectionManager, Instrumenter, Request, WS}
+  alias GraphConn.{ClientHello, ConnectionManager, FrameSummary, Instrumenter, Request, WS}
   require Logger
 
   # Well above any limit a server advertises for its own inbound frames, which it relays onwards.
@@ -69,9 +69,15 @@ defmodule GraphConn.WsConnection do
   end
 
   @doc false
-  @spec execute(server :: GenServer.server(), Request.t()) :: :ok
-  def execute(server, %Request{} = request),
-    do: GenServer.cast(server, {:execute, request})
+  @spec execute(server :: GenServer.server(), Request.t()) :: :ok | {:error, :unencodable_body}
+  def execute(server, %Request{} = request) do
+    request.body
+    |> Jason.encode()
+    |> case do
+      {:ok, body} -> GenServer.cast(server, {:execute, request, body})
+      {:error, _not_encodable} -> {:error, :unencodable_body}
+    end
+  end
 
   @doc false
   @spec update_token(server :: GenServer.server(), token :: String.t()) :: :ok
@@ -126,11 +132,14 @@ defmodule GraphConn.WsConnection do
   end
 
   @impl GenServer
-  def handle_cast({:execute, %Request{} = request}, %State{} = state) do
+  def handle_cast({:execute, %Request{} = request, body}, %State{} = state) do
     push = fn ->
-      log = fn -> "[WsConnection] Pushing message to #{state.api}:\n#{inspect(request.body)}" end
+      log = fn ->
+        summary = FrameSummary.summarize(request.body)
+        "[WsConnection] Pushing message to #{state.api}: #{summary}"
+      end
+
       Logger.debug(log)
-      body = Jason.encode!(request.body)
       WS.push(state.conn_pid, state.stream_ref, body)
     end
 
@@ -166,7 +175,8 @@ defmodule GraphConn.WsConnection do
       msg = Jason.decode!(text)
 
       log = fn ->
-        "[WsConnection] Just received text message on #{state.api}:\n#{inspect(msg)}"
+        summary = FrameSummary.summarize(msg)
+        "[WsConnection] Just received text message on #{state.api}: #{summary}"
       end
 
       Logger.debug(log)
@@ -285,7 +295,7 @@ defmodule GraphConn.WsConnection do
   end
 
   def handle_info(message, %State{} = state) do
-    Logger.debug(fn -> "Unexpected message: #{inspect(message)} on state: #{inspect(state)}" end)
+    Logger.debug(fn -> "Unexpected message on #{state.api}: #{_message_tag(message)}" end)
     {:noreply, state}
   end
 
@@ -317,8 +327,27 @@ defmodule GraphConn.WsConnection do
   defp _log_token_answer(api, %{"body" => "ok"}),
     do: Logger.info("[WsConnection] #{api} took the refreshed token")
 
-  defp _log_token_answer(api, answer),
-    do: Logger.warning("[WsConnection] #{api} refused the refreshed token: #{inspect(answer)}")
+  defp _log_token_answer(api, answer) do
+    log = fn ->
+      summary = FrameSummary.summarize(answer)
+
+      "[WsConnection] #{api} refused the refreshed token: #{summary} error=#{inspect(answer["error"])}"
+    end
+
+    Logger.warning(log)
+  end
+
+  # Names a message by its tag alone: its payload can be a whole frame.
+  defp _message_tag(message) when is_tuple(message) and tuple_size(message) > 0 do
+    tag = elem(message, 0)
+    inspect(tag)
+  end
+
+  defp _message_tag(message) when is_atom(message),
+    do: inspect(message)
+
+  defp _message_tag(_untagged),
+    do: "untagged"
 
   defp _advertised_max_frame_bytes(%{"max_frame_bytes" => max_frame_bytes})
        when is_integer(max_frame_bytes) and max_frame_bytes > 0,

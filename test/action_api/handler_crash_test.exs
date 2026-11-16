@@ -45,9 +45,8 @@ defmodule GraphConn.ActionApi.HandlerCrashTest do
     assert {:error, req_id, %{"req_id" => req_id, "action_status" => 54, "action_error" => error}} =
              _execute(params)
 
-    assert error =~ "Jason.EncodeError"
-    assert error =~ "invalid byte 0xFF"
-    assert byte_size(error) < 5_000
+    # The encoder's own message quotes the result, which is the capability's to keep private.
+    assert "Execution failed: ** (Jason.EncodeError)" == error
 
     assert {:ok, cached} = _cached(req_id)
     assert %{"error" => %{"action_status" => 54}} = Jason.decode!(cached)

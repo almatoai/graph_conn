@@ -209,7 +209,7 @@ defmodule GraphConn.WS do
   @doc false
   @spec push(conn_pid :: pid(), stream_ref :: reference(), msg :: String.t()) :: :ok
   def push(conn_pid, stream_ref, body) do
-    Logger.debug(fn -> "[GraphConn.WS] Pushing #{inspect(body)}" end)
+    Logger.debug(fn -> "[GraphConn.WS] Pushing #{byte_size(body)} bytes" end)
     mono_start = System.monotonic_time()
     :ok = :gun.ws_send(conn_pid, stream_ref, {:text, body})
 

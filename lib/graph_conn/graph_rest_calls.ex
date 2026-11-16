@@ -203,7 +203,7 @@ defmodule GraphConn.GraphRestCalls do
     |> Jason.decode()
     |> case do
       {:ok, decoded} -> _authenticated(decoded)
-      {:error, _not_json} -> {:error, {:invalid_auth_response, body}}
+      {:error, _not_json} -> {:error, {:invalid_auth_response, :not_json}}
     end
   end
 
@@ -222,8 +222,12 @@ defmodule GraphConn.GraphRestCalls do
 
   # A `200` carrying a JSON error object rather than a token. A body that is not JSON at all never
   # reaches here -- the decode above answers it -- and both used to raise inside `ConnectionManager`.
-  defp _authenticated(body),
-    do: {:error, {:invalid_auth_response, body}}
+  # Named by its fields alone: a body missing `expires-at` still carries the token.
+  defp _authenticated(%{} = body),
+    do: {:error, {:invalid_auth_response, Map.keys(body)}}
+
+  defp _authenticated(_not_an_object),
+    do: {:error, {:invalid_auth_response, :not_an_object}}
 
   # `Jason.decode!/1` hands back whatever the Graph sent, so the `pos_integer()` above is a promise
   # until it is checked here. Arithmetic on anything else raises inside `ConnectionManager`, which
@@ -263,7 +267,9 @@ defmodule GraphConn.GraphRestCalls do
         |> to_string()
         |> String.upcase()
 
-      "[GraphRestCaller] Sending #{method}: #{uri}"
+      # Without the query, which can carry anything a caller put in it.
+      uri_path = %URI{URI.parse(uri) | query: nil}
+      "[GraphRestCaller] Sending #{method}: #{uri_path}"
     end
 
     Logger.debug(log)

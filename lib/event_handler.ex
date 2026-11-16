@@ -110,7 +110,12 @@ defmodule GraphConn.EventHandler do
             } = event,
             _
           ) do
-        Logger.debug("[EventHandler] Received event: #{inspect(event)}")
+        log = fn ->
+          summary = GraphConn.FrameSummary.summarize(event)
+          "[EventHandler] Received event: #{summary}"
+        end
+
+        Logger.debug(log)
         handle_event(event)
       end
 
@@ -122,8 +127,12 @@ defmodule GraphConn.EventHandler do
 
       @doc false
       def handle_message_default(:"events-ws", msg, _) do
-        "[EventHandler] Received unexpected message from events-ws: #{inspect(msg)}"
-        |> Logger.warning()
+        log = fn ->
+          summary = GraphConn.FrameSummary.summarize(msg)
+          "[EventHandler] Received unexpected message from events-ws: #{summary}"
+        end
+
+        Logger.warning(log)
       end
 
       @doc "Sends a `register` message to the events-ws upstream with `args` as the filter."

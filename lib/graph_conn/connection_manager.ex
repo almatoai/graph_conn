@@ -167,6 +167,7 @@ defmodule GraphConn.ConnectionManager do
           | {:error, {:unknown_api, [any()]}}
           | {:error, :not_started}
           | {:error, :ws_connection_down}
+          | {:error, :unencodable_body}
           | {:error, {:rate_limited, retry_after_ms :: non_neg_integer()}}
           | {:error, reason :: term()}
   def execute(base_name, target_api, %Request{} = request, opts \\ []) do
@@ -1098,6 +1099,7 @@ defmodule GraphConn.ConnectionManager do
           | {:error, {:unknown_api, [atom()]}}
           | {:error, {:rate_limited, retry_after_ms :: non_neg_integer()}}
           | {:error, :ws_connection_down}
+          | {:error, :unencodable_body}
   defp _execute_ws(base_name, target_api, request) do
     with {:ok, conn_pid} <- _get_ws_connection(base_name, target_api) do
       conn_pid

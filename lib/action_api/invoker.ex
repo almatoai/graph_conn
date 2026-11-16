@@ -269,17 +269,21 @@ defmodule GraphConn.ActionApi.Invoker do
 
       # Expected whenever the denied message carried no id of its own: there is no caller to
       # answer, and it is not the unexpected-message case the clause below reports.
-      def handle_message(:"action-ws", %{"error" => %{"code" => 429}} = msg, %InvokerState{}),
-        do: Logger.warning("[ActionInvoker] Rate limited with no request id: #{inspect(msg)}")
+      def handle_message(:"action-ws", %{"error" => %{"code" => 429} = error}, %InvokerState{}),
+        do: Logger.warning("[ActionInvoker] Rate limited with no request id: #{inspect(error)}")
 
-      def handle_message(:"action-ws", %{"error" => %{"code" => 503}} = msg, %InvokerState{}) do
-        "[ActionInvoker] Upstream unavailable with no request id: #{inspect(msg)}"
+      def handle_message(:"action-ws", %{"error" => %{"code" => 503} = error}, %InvokerState{}) do
+        "[ActionInvoker] Upstream unavailable with no request id: #{inspect(error)}"
         |> Logger.warning()
       end
 
       def handle_message(:"action-ws", msg, %InvokerState{}) do
-        "[ActionInvoker] Received unexpected message from action-ws: #{inspect(msg)}"
-        |> Logger.error()
+        log = fn ->
+          summary = GraphConn.FrameSummary.summarize(msg)
+          "[ActionInvoker] Received unexpected message from action-ws: #{summary}"
+        end
+
+        Logger.error(log)
       end
 
       # A refusal can outlive its caller, who gave up or got an answer first.
@@ -401,7 +405,6 @@ defmodule GraphConn.ActionApi.Invoker do
               | {:ok, response :: any()}
               | {:error, req_id :: String.t(), ActionApi.execution_error()}
       def execute(ticket_id, action_handler_id, capability_name, %{} = params, opts \\ []) do
-        Logger.debug("Trying to send: #{params["req"]}")
         ack_timeout = Keyword.get(opts, :ack_timeout, @ack_timeout)
 
         params =
@@ -432,9 +435,7 @@ defmodule GraphConn.ActionApi.Invoker do
 
         Logger.metadata(req_id: request_id)
 
-        ("[ActionInvoker] Executing #{capability_name} on #{action_handler_id} " <>
-           "with params #{inspect(params)}")
-        |> Logger.info()
+        Logger.info("[ActionInvoker] Executing #{capability_name} on #{action_handler_id}")
 
         try do
           :ok = RequestRegistry.register(__MODULE__, request_id, @request_registry)
