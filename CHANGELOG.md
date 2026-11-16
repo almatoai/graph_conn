@@ -1,6 +1,19 @@
 # Changelog
 
-⚠️ **Breaking changes** in [1.12.0](#1120), [1.11.0](#1110), [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
+⚠️ **Breaking changes** in [1.13.0](#1130), [1.12.0](#1120), [1.11.0](#1110), [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
+
+# 1.13.0 <a id="1130"></a>
+
+## Breaking
+
+- `GraphRestCalls.get_versions/2` returns `{:error, {:unexpected_status, status}}` for a status
+  other than 200 and 429, instead of `{:error, %Finch.Response{}}`.
+
+## Fixes
+
+- An unusable `/api/version` answer (not JSON, not an object, no well-formed entry) no longer
+  crashes the client and takes the host app down; it is retried. Malformed entries are skipped.
+- `/api/version` answers are logged by status, content type and size, never by body.
 
 # 1.12.1 <a id="1121"></a>
 

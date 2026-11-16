@@ -387,6 +387,50 @@ defmodule GraphConn.ConnectionManagerTest do
     end
   end
 
+  describe "discovering versions from a graph answering 200 with a body the client cannot use" do
+    setup do
+      TestClient.stop()
+      _put_env(:retry_initial_ms, 20)
+
+      cleanup = fn ->
+        Mock.clear_rate_limit(:versions_garble)
+        TestClient.stop()
+      end
+
+      on_exit(cleanup)
+
+      :ok
+    end
+
+    test "keeps retrying a page that is not JSON, without a restart, and reaches :ready" do
+      _put_env(:retry_max_ms, 40)
+
+      # More answers than the supervisor allows restarts (3 in 5s), so a crash per answer stops it.
+      Mock.garble_versions(:html, 6)
+
+      _assert_ready_in_one_manager()
+    end
+
+    test "keeps retrying a JSON array, without a restart, and reaches :ready" do
+      _put_env(:retry_max_ms, 40)
+
+      # More answers than the supervisor allows restarts (3 in 5s), so a crash per answer stops it.
+      Mock.garble_versions(:array, 6)
+
+      _assert_ready_in_one_manager()
+    end
+
+    test "reaches :ready with the well-formed entries when one entry is malformed" do
+      Mock.garble_versions({:malformed, "action"}, 2)
+
+      _assert_ready_in_one_manager()
+
+      [{:versions, versions}] = :ets.lookup(TestConn, :versions)
+      assert %{graph: _graph, "action-ws": _action_ws} = versions
+      refute is_map_key(versions, :action)
+    end
+  end
+
   describe "an api missing from versions looked up while the graph was restarting" do
     setup do
       TestClient.stop()
@@ -417,6 +461,32 @@ defmodule GraphConn.ConnectionManagerTest do
 
       assert {:ok, %Response{code: 200}} = result
       assert log =~ "Retrying API version discovery in"
+      assert :ready == TestConn.status()
+      refute_received {:conn_status_changed, {:disconnected, _reason}}
+    end
+
+    test "retries an unusable answer to a lookup made at :ready, staying :ready in one manager" do
+      on_exit(fn -> Mock.clear_rate_limit(:versions_garble) end)
+      Mock.omit_versions_api("action", 2)
+      manager = Module.concat(TestConn, ConnectionManager)
+
+      assert {:ok, _sup_pid} = TestClient.start()
+      assert_receive {:conn_status_changed, :ready}, 5_000
+      manager_pid = Process.whereis(manager)
+      Mock.garble_versions(:html, 3)
+
+      connect = fn ->
+        assert {:error, {:unknown_api, _apis}} = TestConn.execute(:action, @request)
+        _await_execute(:action, System.monotonic_time(:millisecond) + 5_000)
+      end
+
+      {result, log} = with_log(connect)
+
+      assert {:ok, %Response{code: 200}} = result
+      assert log =~ "Graph API versions answer is not JSON"
+      assert [{:versions_garble, remaining, :html}] = :ets.lookup(Mock, :versions_garble)
+      assert remaining <= 0
+      assert manager_pid == Process.whereis(manager)
       assert :ready == TestConn.status()
       refute_received {:conn_status_changed, {:disconnected, _reason}}
     end
@@ -1543,6 +1613,15 @@ defmodule GraphConn.ConnectionManagerTest do
   defp _versions_lookups(armed) do
     [{:versions_omission, remaining, _api}] = :ets.lookup(GraphConn.Mock, :versions_omission)
     armed - remaining
+  end
+
+  defp _assert_ready_in_one_manager do
+    assert {:ok, _sup_pid} = TestClient.start()
+    manager = Module.concat(TestConn, ConnectionManager)
+    manager_pid = Process.whereis(manager)
+
+    assert_receive {:conn_status_changed, :ready}, 5_000
+    assert manager_pid == Process.whereis(manager)
   end
 
   defp _put_env(key, value),
