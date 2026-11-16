@@ -11,11 +11,18 @@ defmodule GraphConn.GraphRestCalls do
   alias GraphConn.{Instrumenter, Request, Response, ResponseError, RetryAfter}
   require Logger
 
+  @api_name_max 64
+  @api_name ~r/\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,#{@api_name_max - 1}}\z/
+  @logged_malformed 10
+
   @type versions() :: %{atom() => %{path: String.t(), subprotocol: String.t()}}
 
   @doc """
   Returns map of API versions connected Graph server supports,
   together with their path and subprotocol (for websocket connections).
+
+  An answer that is not a JSON object, or names no well-formed entry, is
+  `{:error, {:bad_versions, reason}}`; a malformed entry is skipped with a warning.
 
   ## Example:
 
@@ -72,20 +79,16 @@ defmodule GraphConn.GraphRestCalls do
     request
     |> _shoot(base_name, config)
     |> case do
-      %Finch.Response{status: 200, body: body} ->
-        versions =
-          body
-          |> Jason.decode!()
-          |> Enum.map(fn {key,
-                          %{"endpoint" => endpoint, "protocols" => protocol, "version" => version}} ->
-            {_api_atom(key), %{path: endpoint, protocol: protocol, subprotocol: version}}
-          end)
-          |> Enum.into(%{})
-
-        {:ok, versions}
+      %Finch.Response{status: 200, body: body} = response ->
+        body
+        |> Jason.decode()
+        |> _versions(response)
 
       %Finch.Response{status: 429, headers: headers} ->
         RetryAfter.rate_limited(headers)
+
+      %Finch.Response{status: status} = response ->
+        _rejected(response, "has an unexpected status", {:unexpected_status, status})
 
       other ->
         Logger.error("#{inspect(other)}")
@@ -93,10 +96,89 @@ defmodule GraphConn.GraphRestCalls do
     end
   end
 
-  # The Graph's versions response names a small, finite set of apis, so they are safe as atoms.
+  # Only shape and size are logged: the body of a proxy page or a broken answer can be anything.
+  defp _versions({:error, _decode_error}, response),
+    do: _rejected(response, "is not JSON", {:bad_versions, :not_json})
+
+  defp _versions({:ok, %{} = entries}, response) do
+    {versions, malformed} =
+      entries
+      |> Enum.reduce({%{}, []}, &_take_entry/2)
+
+    _warn_malformed(malformed)
+    _usable_versions(versions, response)
+  end
+
+  defp _versions({:ok, _not_an_object}, response),
+    do: _rejected(response, "is not a JSON object", {:bad_versions, :not_an_object})
+
+  defp _take_entry(
+         {key, %{"endpoint" => endpoint, "protocols" => protocol, "version" => version}},
+         {versions, malformed}
+       )
+       when is_binary(endpoint) and is_binary(protocol) and is_binary(version) do
+    key
+    |> _api_atom()
+    |> case do
+      {:ok, api} ->
+        entry = %{path: endpoint, protocol: protocol, subprotocol: version}
+        {Map.put(versions, api, entry), malformed}
+
+      :error ->
+        {versions, [key | malformed]}
+    end
+  end
+
+  defp _take_entry({key, _malformed_entry}, {versions, malformed}),
+    do: {versions, [key | malformed]}
+
+  defp _warn_malformed([] = _malformed),
+    do: :ok
+
+  defp _warn_malformed(malformed),
+    do: Logger.warning(fn -> _malformed_message(malformed) end)
+
+  # Bounded, since a broken answer can name any number of entries, each of any length.
+  defp _malformed_message(malformed) do
+    names =
+      malformed
+      |> Enum.sort()
+      |> Enum.take(@logged_malformed)
+      |> Enum.map_join(", ", &String.slice(&1, 0, @api_name_max))
+
+    "Graph API versions: skipping malformed entries: #{names} (#{length(malformed)} in all)"
+  end
+
+  defp _usable_versions(versions, response) when map_size(versions) == 0,
+    do: _rejected(response, "names no usable api", {:bad_versions, :no_usable_api})
+
+  defp _usable_versions(versions, _response),
+    do: {:ok, versions}
+
+  defp _rejected(response, what, reason) do
+    Logger.error(fn -> "Graph API versions answer #{what} (#{_described(response)})" end)
+    {:error, reason}
+  end
+
+  defp _described(%Finch.Response{status: status, body: body, headers: headers}) do
+    content_type =
+      headers
+      |> List.keyfind("content-type", 0)
+      |> case do
+        {_header, content_type} -> content_type
+        nil -> "no content-type"
+      end
+
+    "#{status}, #{content_type}, #{byte_size(body)} bytes"
+  end
+
+  # Atoms are never collected, so only a name shaped like an api's becomes one.
   # sobelow_skip ["DOS.StringToAtom"]
-  defp _api_atom(api_name),
-    do: String.to_atom(api_name)
+  defp _api_atom(api_name) do
+    if api_name =~ @api_name,
+      do: {:ok, String.to_atom(api_name)},
+      else: :error
+  end
 
   @doc """
   Gets token for given `config`.

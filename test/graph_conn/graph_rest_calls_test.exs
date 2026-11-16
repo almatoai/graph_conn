@@ -1,6 +1,7 @@
 defmodule GraphConn.GraphRestCallsTest do
   use ExUnit.Case, async: false
   import GraphConn.GraphRestCalls
+  import ExUnit.CaptureLog, only: [with_log: 1]
   alias GraphConn.{ConnectionManager, Mock, TestConn}
 
   # Nothing listens on port 1, so a request sent there is refused at once.
@@ -50,6 +51,121 @@ defmodule GraphConn.GraphRestCallsTest do
 
       config = _config("versions_auth_from_auth_url")
       assert {:ok, %{auth: %{path: "/api/6/auth/"}}} = get_versions(TestActionHandler, config)
+    end
+  end
+
+  describe "get_versions/2 from a graph answering with something other than versions" do
+    setup do
+      on_exit(fn -> Mock.clear_rate_limit(:versions_garble) end)
+    end
+
+    test "fails on a 200 that is not JSON, logging its size and type but not its body" do
+      Mock.garble_versions(:html, 1)
+
+      config = _config("versions_html")
+      {result, log} = with_log(fn -> get_versions(TestActionHandler, config) end)
+
+      assert {:error, {:bad_versions, :not_json}} == result
+      assert log =~ "Graph API versions answer is not JSON (200, text/html"
+      assert log =~ "51 bytes)"
+      refute log =~ "proxy page"
+    end
+
+    test "fails on a 200 with a JSON array" do
+      Mock.garble_versions(:array, 1)
+
+      config = _config("versions_array")
+      {result, log} = with_log(fn -> get_versions(TestActionHandler, config) end)
+
+      assert {:error, {:bad_versions, :not_an_object}} == result
+      assert log =~ "Graph API versions answer is not a JSON object (200, application/json"
+      refute log =~ "endpoint"
+    end
+
+    test "skips a malformed entry with a warning naming it and keeps the others" do
+      Mock.garble_versions({:malformed, "action"}, 2)
+
+      config = _config("versions_one_malformed")
+      {result, log} = with_log(fn -> get_versions(TestActionHandler, config) end)
+
+      assert {:ok, %{graph: %{path: "/api/7.1/graph/"}, auth: _auth} = versions} = result
+      refute is_map_key(versions, :action)
+      assert log =~ "[warning] Graph API versions: skipping malformed entries: action"
+    end
+
+    test "fails when no entry is usable" do
+      Mock.garble_versions({:malformed, :all}, 1)
+
+      config = _config("versions_all_malformed")
+      {result, log} = with_log(fn -> get_versions(TestActionHandler, config) end)
+
+      assert {:error, {:bad_versions, :no_usable_api}} == result
+      assert log =~ "Graph API versions answer names no usable api"
+    end
+
+    test "turns into an atom only the name of a well-formed entry" do
+      malformed_name = "garbled_api_#{System.unique_integer([:positive])}"
+      Mock.garble_versions({:extra, malformed_name, %{"endpoint" => "/api/1/x/"}}, 2)
+
+      config = _config("versions_malformed_not_atomised")
+      assert {:ok, %{graph: _graph}} = get_versions(TestActionHandler, config)
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(malformed_name) end
+    end
+
+    test "skips an entry whose name is not an api name" do
+      long_name = "api_#{System.unique_integer([:positive])}_" <> String.duplicate("x", 64)
+      entry = %{"endpoint" => "/api/1/x/", "protocols" => "", "version" => "1"}
+      Mock.garble_versions({:extra, long_name, entry}, 2)
+
+      config = _config("versions_long_name")
+      {result, log} = with_log(fn -> get_versions(TestActionHandler, config) end)
+
+      assert {:ok, %{graph: _graph}} = result
+      assert_raise ArgumentError, fn -> String.to_existing_atom(long_name) end
+      shown = String.slice(long_name, 0, 64)
+      assert log =~ "skipping malformed entries: #{shown} (1 in all)"
+    end
+
+    test "keeps an api name of 64 characters and skips one of 65" do
+      prefix = "api_#{System.unique_integer([:positive])}_"
+      longest = String.pad_trailing(prefix, 64, "x")
+      too_long = String.pad_trailing(prefix, 65, "x")
+      entry = %{"endpoint" => "/api/1/x/", "protocols" => "", "version" => "1"}
+      config = _config("versions_name_boundary")
+
+      Mock.garble_versions({:extra, longest, entry}, 2)
+      assert {:ok, %{} = kept} = get_versions(TestActionHandler, config)
+      longest_api = String.to_existing_atom(longest)
+      assert is_map_key(kept, longest_api)
+
+      Mock.garble_versions({:extra, too_long, entry}, 2)
+      assert {:ok, %{graph: _graph}} = get_versions(TestActionHandler, config)
+      assert_raise ArgumentError, fn -> String.to_existing_atom(too_long) end
+    end
+
+    test "names at most 10 malformed entries in its warning" do
+      config = _config("versions_many_malformed")
+      {:ok, versions} = get_versions(TestActionHandler, config)
+      names = versions |> Map.keys() |> Enum.map(&Atom.to_string/1) |> Enum.sort()
+      assert length(names) > 10, "the mock must serve more than 10 apis for the bound to show"
+
+      Mock.garble_versions({:malformed, :all}, 1)
+      {_result, log} = with_log(fn -> get_versions(TestActionHandler, config) end)
+
+      first_ten = names |> Enum.take(10) |> Enum.join(", ")
+      assert log =~ "skipping malformed entries: #{first_ten} (#{length(names)} in all)"
+    end
+
+    test "fails on any other status, logging its size and type but not its body" do
+      Mock.garble_versions(:bad_gateway, 1)
+
+      config = _config("versions_bad_gateway")
+      {result, log} = with_log(fn -> get_versions(TestActionHandler, config) end)
+
+      assert {:error, {:unexpected_status, 502}} == result
+      assert log =~ "Graph API versions answer has an unexpected status (502, text/html"
+      refute log =~ "proxy page"
     end
   end
 

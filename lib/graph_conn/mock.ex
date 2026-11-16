@@ -10,6 +10,14 @@ defmodule GraphConn.Mock do
 
   @default_token_lifetime 10 * 60 * 1_000
 
+  @typedoc "A versions answer a client cannot use; see `garble_versions/2`."
+  @type versions_garble ::
+          :html
+          | :array
+          | {:malformed, api :: String.t() | [String.t()] | :all}
+          | {:extra, api :: String.t(), entry :: term()}
+          | :bad_gateway
+
   @doc """
   Sets the lifetime the mock issues for `token`, in milliseconds.
 
@@ -134,6 +142,7 @@ defmodule GraphConn.Mock do
 
   @versions_key :versions
   @versions_omission_key :versions_omission
+  @versions_garble_key :versions_garble
   @action_fetch_key :action_fetch
   @ws_upgrade_key :ws_upgrade
   @request_deny_key :request_deny
@@ -186,6 +195,27 @@ defmodule GraphConn.Mock do
   def take_versions_omission,
     do: _take_rate_limit(@versions_omission_key)
 
+  @doc """
+  Arms the mock to answer the next `times` API-version lookups with a body a client cannot use,
+  as a proxy or a half-started graph can:
+
+  - `:html` - a `200` with an HTML page
+  - `:array` - a `200` with a JSON array of the version entries
+  - `{:malformed, api | [api] | :all}` - a `200` whose entries for those apis lack `endpoint`
+  - `{:extra, api, entry}` - a `200` listing `entry` under `api` besides the usual apis
+  - `:bad_gateway` - a `502` with an HTML page
+
+  Like `rate_limit_versions/2` this answers whichever suite asks next.
+  """
+  @spec garble_versions(garble :: versions_garble(), times :: pos_integer()) :: :ok
+  def garble_versions(garble, times),
+    do: _arm(@versions_garble_key, times, garble)
+
+  @doc false
+  @spec take_versions_garble() :: {:ok, versions_garble()} | :error
+  def take_versions_garble,
+    do: _take_rate_limit(@versions_garble_key)
+
   defp _arm(key, times, payload) do
     true = :ets.insert(__MODULE__, {key, times, payload})
     :ok
@@ -202,6 +232,7 @@ defmodule GraphConn.Mock do
             String.t()
             | :versions
             | :versions_omission
+            | :versions_garble
             | {:ws_upgrade | :submit_drop, String.t()}
             | {:action_fetch, token :: String.t(), path :: String.t()}
         ) :: :ok

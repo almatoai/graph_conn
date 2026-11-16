@@ -25,7 +25,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       GraphConn.Mock.take_versions_rate_limit()
       |> case do
         {:ok, retry_after_seconds} -> _rate_limited(conn, retry_after_seconds)
-        :error -> _success(conn, &_served_apis/0)
+        :error -> _versions(conn)
       end
     end
 
@@ -126,6 +126,59 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         nil -> _unauthorized(conn)
         token -> _success(conn, fn -> _credentials(token) end)
       end
+    end
+
+    defp _versions(conn) do
+      GraphConn.Mock.take_versions_garble()
+      |> case do
+        {:ok, garble} -> _garbled_versions(conn, garble)
+        :error -> _success(conn, &_served_apis/0)
+      end
+    end
+
+    defp _garbled_versions(conn, :html),
+      do: _html(conn, 200)
+
+    defp _garbled_versions(conn, :bad_gateway),
+      do: _html(conn, 502)
+
+    defp _garbled_versions(conn, :array) do
+      entries = _apis() |> Map.values()
+      _success(conn, entries)
+    end
+
+    defp _garbled_versions(conn, {:extra, api, entry}) do
+      apis = _apis() |> Map.put(api, entry)
+      _success(conn, apis)
+    end
+
+    defp _garbled_versions(conn, {:malformed, :all}) do
+      names = _apis() |> Map.keys()
+      _garbled_versions(conn, {:malformed, names})
+    end
+
+    defp _garbled_versions(conn, {:malformed, api}) do
+      malformed = List.wrap(api)
+
+      apis =
+        _apis()
+        |> Map.new(fn
+          {name, entry} -> {name, _malformed(entry, name in malformed)}
+        end)
+
+      _success(conn, apis)
+    end
+
+    defp _malformed(entry, true = _malformed?),
+      do: Map.delete(entry, "endpoint")
+
+    defp _malformed(entry, false = _malformed?),
+      do: entry
+
+    defp _html(conn, status) do
+      conn
+      |> Plug.Conn.put_resp_content_type("text/html")
+      |> Plug.Conn.send_resp(status, "<html><body>proxy page, not the graph</body></html>")
     end
 
     defp _served_apis do
