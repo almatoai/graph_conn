@@ -17,11 +17,22 @@ defmodule GraphConn.ConnectionManager do
             ws_connections: map(),
             status: GraphConn.status(),
             desired_status: GraphConn.status(),
-            refused_apis: MapSet.t(atom())
+            refused_apis: MapSet.t(atom()),
+            missing_apis: %{(api :: atom()) => :execute | :open},
+            rediscovery: :idle | :scheduled,
+            rediscover_in: nil | pos_integer(),
+            missing_auth_retry_in: nil | pos_integer()
           }
 
     @enforce_keys ~w(base_name ws_connections status desired_status)a
-    defstruct @enforce_keys ++ [refused_apis: MapSet.new()]
+    defstruct @enforce_keys ++
+                [
+                  refused_apis: MapSet.new(),
+                  missing_apis: %{},
+                  rediscovery: :idle,
+                  rediscover_in: nil,
+                  missing_auth_retry_in: nil
+                ]
   end
 
   use GenServer
@@ -356,6 +367,9 @@ defmodule GraphConn.ConnectionManager do
     {:noreply, state}
   end
 
+  def handle_cast({:api_missing, api, purpose}, %State{} = state),
+    do: {:noreply, _api_missing(state, api, purpose)}
+
   def handle_cast({:open_ws_connection, target_api}, %State{} = state) do
     {:reply, _, state} = handle_call({:open_ws_connection, target_api}, self(), state)
     {:noreply, state}
@@ -374,6 +388,11 @@ defmodule GraphConn.ConnectionManager do
       :got_api_versions -> _get_token(state, {:connect, retry_in})
       :ready -> {:noreply, state}
     end
+  end
+
+  def handle_info({:rediscover_versions, next_in}, %State{} = state) do
+    state = %State{state | rediscovery: :idle, rediscover_in: next_in}
+    {:noreply, _rediscover_versions(state)}
   end
 
   def handle_info(:refresh_token, %State{} = state),
@@ -479,7 +498,7 @@ defmodule GraphConn.ConnectionManager do
         # "retry now" forever. Clearing it puts them back on the ordinary spin.
         _update_ets(state.base_name, {target_api, :reopen_at}, nil)
         _update_ets(state.base_name, {target_api, :reopen_due_at}, nil)
-        {:reply, no_version_found, state}
+        {:reply, no_version_found, _open_when_found(state, target_api, no_version_found)}
     end
   end
 
@@ -830,9 +849,11 @@ defmodule GraphConn.ConnectionManager do
         _status_changed(:ready, state)
 
         state =
-          %State{state | status: :ready}
+          %State{state | status: :ready, missing_auth_retry_in: nil}
           |> _retoken_ws_connections()
           |> _reopen_refused()
+          |> _open_listed()
+          |> _keep_looking(false)
 
         {:noreply, state}
 
@@ -843,12 +864,154 @@ defmodule GraphConn.ConnectionManager do
         _schedule_retry("authentication", retry_message, retry_in, advertised_ms)
         {:noreply, state}
 
+      {:error, {:missing_api, :auth} = missing} ->
+        {:noreply, _rediscover(state, missing, retry_in)}
+
       {:error, error} ->
         Logger.error("Authentication failed: #{inspect(error)}")
         _schedule_retry("authentication", retry_message, retry_in, 0)
         {:noreply, state}
     end
   end
+
+  # Versions cached while the graph was restarting can lack `auth`, and retrying authentication
+  # against them never succeeds, so drop them and go back to discovery. A successful discovery
+  # restarts `:connect` at the curve's seed, so the curve is kept here until `:ready` resets it.
+  # Always `:connect`: a `{:refresh_token, _}` is ignored anywhere but `:ready`.
+  defp _rediscover(%State{} = state, missing, retry_in) do
+    Logger.warning("Graph API versions name no auth api, looking them up again")
+    _update_ets(state.base_name, :versions, %{})
+
+    status = {:disconnected, missing}
+    _status_changed(status, state)
+    current = state.missing_auth_retry_in || retry_in
+    next_in = _schedule_retry("API version discovery", :connect, current, 0)
+    %State{state | status: status, missing_auth_retry_in: next_in}
+  end
+
+  # `:not_started` too: a client back in discovery has no versions at all for the moment.
+  defp _open_when_found(%State{} = state, target_api, {:error, {:unknown_api, _apis}}),
+    do: _api_missing(state, target_api, :open)
+
+  defp _open_when_found(%State{} = state, target_api, {:error, :not_started}),
+    do: _api_missing(state, target_api, :open)
+
+  # Versions looked up while the graph was restarting can lack an api that a caller then asks for.
+  # Rather than drop a `:ready` client back to discovery, look them up again in place, one lookup
+  # at a time on the retry curve, so an api the graph never offers costs one lookup per step
+  # however often it is asked for. A disconnected client is rediscovering already, so it only
+  # keeps a WebSocket asked for, to open at `:ready`.
+  defp _api_missing(%State{status: {:disconnected, _reason}} = state, api, :open),
+    do: _put_missing(state, api, :open)
+
+  defp _api_missing(%State{status: {:disconnected, _reason}} = state, _api, :execute),
+    do: state
+
+  defp _api_missing(%State{} = state, api, purpose) do
+    state
+    |> _put_missing(api, purpose)
+    |> _schedule_rediscovery()
+  end
+
+  defp _put_missing(%State{} = state, api, purpose) do
+    missing_apis = Map.update(state.missing_apis, api, purpose, &_purpose(&1, purpose))
+    %State{state | missing_apis: missing_apis}
+  end
+
+  defp _purpose(:open, _purpose),
+    do: :open
+
+  defp _purpose(_purpose, new_purpose),
+    do: new_purpose
+
+  defp _schedule_rediscovery(%State{rediscovery: :scheduled} = state),
+    do: state
+
+  defp _schedule_rediscovery(%State{} = state),
+    do: _schedule_rediscovery(state, 0)
+
+  defp _schedule_rediscovery(%State{} = state, advertised_ms) do
+    retry_in = state.rediscover_in || _initial()
+    _schedule_retry("API version discovery", :rediscover_versions, retry_in, advertised_ms)
+    %State{state | rediscovery: :scheduled}
+  end
+
+  defp _rediscover_versions(%State{status: {:disconnected, _reason}} = state),
+    do: _only_opens(state)
+
+  defp _rediscover_versions(%State{} = state) do
+    [{:config, config}] = :ets.lookup(state.base_name, :config)
+
+    state.base_name
+    |> GraphRestCalls.get_versions(config)
+    |> case do
+      {:ok, versions} -> _versions_rediscovered(state, versions)
+      {:error, {:rate_limited, advertised_ms}} -> _schedule_rediscovery(state, advertised_ms)
+      {:error, _error} -> _schedule_rediscovery(state, 0)
+    end
+  end
+
+  # Merged into the cached versions, so an api a restarting graph leaves out stays usable.
+  defp _versions_rediscovered(%State{} = state, versions) do
+    [{:versions, cached}] = :ets.lookup(state.base_name, :versions)
+    versions = Map.merge(cached, versions)
+    _update_ets(state.base_name, :versions, versions)
+
+    apis = Map.keys(versions)
+    still_missing = Map.drop(state.missing_apis, apis)
+    curve_reset = map_size(still_missing) == 0
+
+    state
+    |> _only_opens()
+    |> _open_listed()
+    |> _keep_looking(curve_reset)
+  end
+
+  # An api a call asked for waits for the next call that asks; a WebSocket asked for is kept until
+  # it opens.
+  defp _only_opens(%State{} = state) do
+    to_open =
+      state.missing_apis
+      |> Enum.filter(fn {_api, purpose} -> purpose == :open end)
+      |> Map.new()
+
+    %State{state | missing_apis: to_open}
+  end
+
+  # Opens each WebSocket asked for that the versions now list. Below `:ready` there is no token to
+  # open it with, so it waits for `:ready`, which calls this again.
+  defp _open_listed(%State{status: :ready} = state) do
+    [{:versions, versions}] = :ets.lookup(state.base_name, :versions)
+    apis = Map.keys(versions)
+    {listed, unlisted} = Map.split(state.missing_apis, apis)
+    state = %State{state | missing_apis: unlisted}
+
+    listed
+    |> Map.keys()
+    |> Enum.reduce(state, &_open_found(&2, &1))
+  end
+
+  defp _open_listed(%State{} = state),
+    do: state
+
+  defp _open_found(%State{} = state, api) do
+    retry_in = _initial()
+    {:reply, _reply, %State{} = state} = _open_ws(state, api, retry_in, :reopen_ws)
+    state
+  end
+
+  # The curve starts over only once a lookup found every api asked for: a caller asking again and
+  # again for an api the graph never offers keeps climbing it. A WebSocket still unlisted at
+  # `:ready` keeps looking on the curve.
+  defp _keep_looking(%State{} = state, true = _curve_reset),
+    do: _keep_looking(%State{state | rediscover_in: nil}, false)
+
+  defp _keep_looking(%State{status: :ready, missing_apis: to_open} = state, _curve_reset)
+       when map_size(to_open) > 0,
+       do: _schedule_rediscovery(state)
+
+  defp _keep_looking(%State{} = state, _curve_reset),
+    do: state
 
   # Already expired by OUR clock, which the graph may not share: keep the token and stay `:ready`,
   # because a merely skewed client works fine, but pace the next attempt on the curve -- scheduling
@@ -888,6 +1051,7 @@ defmodule GraphConn.ConnectionManager do
 
     Process.send_after(self(), {retry_message, next_current}, delay)
     _log_retry(site, delay)
+    next_current
   end
 
   # The delay actually chosen, after the floor, the cap and any clamping -- which is the number an
@@ -1047,10 +1211,19 @@ defmodule GraphConn.ConnectionManager do
         versions
         |> Map.get(target_api)
         |> case do
-          nil -> {:error, {:unknown_api, Map.keys(versions)}}
+          nil -> _report_missing(base_name, target_api, versions)
           version -> {:ok, version}
         end
     end
+  end
+
+  # Cast, not called: this runs in the caller, and also inside the manager itself.
+  defp _report_missing(base_name, target_api, versions) do
+    base_name
+    |> _name()
+    |> GenServer.cast({:api_missing, target_api, :execute})
+
+    {:error, {:unknown_api, Map.keys(versions)}}
   end
 
   # gun only checks the option at upgrade, where a bad value is retried on the backoff curve forever.

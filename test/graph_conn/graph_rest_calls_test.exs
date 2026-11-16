@@ -31,7 +31,34 @@ defmodule GraphConn.GraphRestCallsTest do
     end
   end
 
+  describe "get_versions/2 from a graph that names no auth api" do
+    setup do
+      on_exit(fn -> Mock.clear_rate_limit(:versions_omission) end)
+    end
+
+    test "returns the versions it was given, without auth" do
+      Mock.omit_versions_api("auth", 2)
+
+      config = _config("versions_without_auth")
+      assert {:ok, %{graph: _graph} = versions} = get_versions(TestActionHandler, config)
+      refute is_map_key(versions, :auth)
+    end
+
+    test "takes auth from the auth url when only the main url leaves it out" do
+      # The main url is asked first, so a single strip lands there.
+      Mock.omit_versions_api("auth", 1)
+
+      config = _config("versions_auth_from_auth_url")
+      assert {:ok, %{auth: %{path: "/api/6/auth/"}}} = get_versions(TestActionHandler, config)
+    end
+  end
+
   describe "authenticate/3" do
+    test "returns an error naming the missing auth api when the versions have none" do
+      config = _config("versions_without_auth")
+      assert {:error, {:missing_api, :auth}} == authenticate(TestActionHandler, config, %{})
+    end
+
     test "returns token" do
       config =
         :graph_conn

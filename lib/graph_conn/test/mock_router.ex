@@ -25,7 +25,7 @@ if Code.ensure_loaded?(Plug.Cowboy) do
       GraphConn.Mock.take_versions_rate_limit()
       |> case do
         {:ok, retry_after_seconds} -> _rate_limited(conn, retry_after_seconds)
-        :error -> _success(conn, &_apis/0)
+        :error -> _success(conn, &_served_apis/0)
       end
     end
 
@@ -126,6 +126,19 @@ if Code.ensure_loaded?(Plug.Cowboy) do
         nil -> _unauthorized(conn)
         token -> _success(conn, fn -> _credentials(token) end)
       end
+    end
+
+    defp _served_apis do
+      Mock.take_versions_omission()
+      |> case do
+        {:ok, api} -> _omit(api)
+        :error -> _apis()
+      end
+    end
+
+    defp _omit(api) do
+      omitted = List.wrap(api)
+      _apis() |> Map.drop(omitted)
     end
 
     defp _apis do

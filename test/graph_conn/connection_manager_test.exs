@@ -3,7 +3,7 @@ defmodule GraphConn.ConnectionManagerTest do
 
   import ExUnit.CaptureLog, only: [with_log: 1]
 
-  alias GraphConn.{ConnectionManager, Mock, Request, TestClient, TestConn}
+  alias GraphConn.{ConnectionManager, Mock, Request, Response, TestClient, TestConn}
 
   @request %Request{path: "capabilities"}
 
@@ -328,6 +328,139 @@ defmodule GraphConn.ConnectionManagerTest do
       # at most 40ms, ~185ms in total. It does not catch the flat one second this path used to
       # wait, which is slower rather than faster; the acceptance scenario covers that one.
       assert elapsed > 700
+    end
+  end
+
+  describe "discovering versions from a graph that names no auth api" do
+    setup do
+      TestClient.stop()
+
+      cleanup = fn ->
+        Mock.clear_rate_limit(:versions_omission)
+        TestClient.stop()
+      end
+
+      on_exit(cleanup)
+
+      :ok
+    end
+
+    test "goes back to discovery on the retry curve while the graph never names auth" do
+      _put_env(:retry_initial_ms, 20)
+      _put_env(:retry_max_ms, 400)
+      _put_env(:retry_jitter_ms, 0)
+      Mock.omit_versions_api("auth", 100_000)
+
+      assert {:ok, _sup_pid} = TestClient.start()
+      Process.sleep(1_500)
+      drops = _count_received({:conn_status_changed, {:disconnected, {:missing_api, :auth}}})
+
+      # On the curve (20, 40, 80, 160, 320, then 400ms) about 7 drops fit in 1.5s.
+      assert drops in 3..12, "#{drops} drops to discovery in 1.5s"
+    end
+
+    test "looks the versions up again and reaches :ready" do
+      _put_env(:retry_initial_ms, 20)
+
+      # One discovery asks both the main and the auth url, so this strips `auth` from one discovery.
+      Mock.omit_versions_api("auth", 2)
+
+      connect = fn ->
+        assert {:ok, _sup_pid} = TestClient.start()
+        assert_receive {:conn_status_changed, {:disconnected, {:missing_api, :auth}}}, 5_000
+        assert_receive {:conn_status_changed, :ready}, 5_000
+      end
+
+      {_ready, log} = with_log(connect)
+
+      assert log =~ "[warning] Graph API versions name no auth api, looking them up again"
+      assert log =~ "Retrying API version discovery in"
+    end
+
+    test "stops at :got_api_versions for a client that only wants versions" do
+      # Every lookup, for as long as the test runs: this graph never names auth.
+      Mock.omit_versions_api("auth", 1_000)
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 5_000
+      assert :got_api_versions == TestConn.status()
+    end
+  end
+
+  describe "an api missing from versions looked up while the graph was restarting" do
+    setup do
+      TestClient.stop()
+      _put_env(:retry_initial_ms, 20)
+
+      cleanup = fn ->
+        Mock.clear_rate_limit(:versions_omission)
+        TestClient.stop()
+      end
+
+      on_exit(cleanup)
+
+      :ok
+    end
+
+    test "looks the versions up again and serves the REST api, staying :ready" do
+      Mock.omit_versions_api("action", 2)
+
+      assert {:ok, _sup_pid} = TestClient.start()
+      assert_receive {:conn_status_changed, :ready}, 5_000
+
+      connect = fn ->
+        assert {:error, {:unknown_api, _apis}} = TestConn.execute(:action, @request)
+        _await_execute(:action, System.monotonic_time(:millisecond) + 5_000)
+      end
+
+      {result, log} = with_log(connect)
+
+      assert {:ok, %Response{code: 200}} = result
+      assert log =~ "Retrying API version discovery in"
+      assert :ready == TestConn.status()
+      refute_received {:conn_status_changed, {:disconnected, _reason}}
+    end
+
+    test "opens the WebSocket it was asked for once the versions name it" do
+      Mock.omit_versions_api("action-ws", 2)
+
+      assert {:ok, _sup_pid} = TestClient.start()
+      assert_receive {:conn_status_changed, :ready}, 5_000
+
+      GraphConn.open_ws_connection(TestConn, :"action-ws")
+      assert_receive {:conn_status_changed, :"action-ws", :ready}, 5_000
+    end
+
+    test "opens a WebSocket asked for while the client was back in discovery" do
+      _put_env(:startup_wait_ms, 50)
+      # One discovery without auth or action-ws, so the client drops back to discovery.
+      Mock.omit_versions_api(["auth", "action-ws"], 2)
+
+      assert {:ok, _sup_pid} = TestClient.start()
+      assert_receive {:conn_status_changed, :got_api_versions}, 5_000
+      GraphConn.open_ws_connection(TestConn, :"action-ws")
+
+      assert_receive {:conn_status_changed, :ready}, 5_000
+      assert_receive {:conn_status_changed, :"action-ws", :ready}, 5_000
+    end
+
+    test "looks versions up once per retry step, however often an api the graph lacks is asked for" do
+      _put_env(:retry_initial_ms, 300)
+      _put_env(:retry_max_ms, 300)
+      Mock.omit_versions_api("action", 1_000)
+
+      assert {:ok, _sup_pid} = TestClient.start()
+      assert_receive {:conn_status_changed, :ready}, 5_000
+      lookups_at_ready = _versions_lookups(1_000)
+
+      for _call <- 1..100,
+          do: assert({:error, {:unknown_api, _apis}} = TestConn.execute(:action, @request))
+
+      # Jitter only shortens a step, so the one lookup the burst may cause lands inside 300ms.
+      Process.sleep(600)
+
+      # One lookup, which asks both the main and the auth url.
+      assert 2 == _versions_lookups(1_000) - lookups_at_ready
     end
   end
 
@@ -1369,6 +1502,33 @@ defmodule GraphConn.ConnectionManagerTest do
   defp _put_startup_wait(ms),
     do: _put_env(:startup_wait_ms, ms)
 
+  defp _await_execute(api, deadline) do
+    result = TestConn.execute(api, @request)
+    now = System.monotonic_time(:millisecond)
+    _await_execute(result, api, now, deadline)
+  end
+
+  defp _await_execute({:error, {:unknown_api, _apis}}, api, now, deadline) when now < deadline do
+    Process.sleep(20)
+    _await_execute(api, deadline)
+  end
+
+  defp _await_execute(result, _api, _now, _deadline),
+    do: result
+
+  defp _versions_lookups(armed) do
+    [{:versions_omission, remaining, _api}] = :ets.lookup(GraphConn.Mock, :versions_omission)
+    armed - remaining
+  end
+
   defp _put_env(key, value),
     do: TestClient.put_env(key, value)
+
+  defp _count_received(msg, count \\ 0) do
+    receive do
+      ^msg -> _count_received(msg, count + 1)
+    after
+      0 -> count
+    end
+  end
 end
