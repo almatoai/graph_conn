@@ -1,10 +1,4 @@
 defmodule GraphConn.CredoChecks.NoPipeInsideCall do
-  @moduledoc """
-  Flags pipe chains used directly as function-call arguments.
-
-  Project convention: extract such pipes to a named value or restructure as a
-  top-level pipe.
-  """
   use Credo.Check,
     base_priority: :high,
     category: :readability,
@@ -21,6 +15,14 @@ defmodule GraphConn.CredoChecks.NoPipeInsideCall do
           x |> bar() |> foo(y)
       """
     ]
+
+  # After `use Credo.Check`, which sets a public @moduledoc of its own.
+  @moduledoc !"""
+             Flags pipe chains used directly as function-call arguments.
+
+             Project convention: extract such pipes to a named value or restructure as a
+             top-level pipe.
+             """
 
   alias Credo.IssueMeta
 

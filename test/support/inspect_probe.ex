@@ -1,5 +1,5 @@
 defmodule GraphConn.Test.InspectProbe do
-  @moduledoc "A value that sends `:inspected` to `test_pid` every time it is inspected."
+  @moduledoc !"A value that sends `:inspected` to `test_pid` every time it is inspected."
 
   @derive {Jason.Encoder, only: []}
   defstruct [:test_pid]

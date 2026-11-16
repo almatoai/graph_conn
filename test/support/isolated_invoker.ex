@@ -2,7 +2,7 @@
 # consumer build without either.
 if Code.ensure_loaded?(:gun) and Code.ensure_loaded?(Plug.Cowboy) do
   defmodule GraphConn.Test.IsolatedInvoker do
-    @moduledoc "An action invoker on its own mock identity, for tests that arm faults against it."
+    @moduledoc !"An action invoker on its own mock identity, for tests that arm faults against it."
 
     use GraphConn.ActionApi.Invoker
 

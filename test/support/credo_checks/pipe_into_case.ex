@@ -1,11 +1,4 @@
 defmodule GraphConn.CredoChecks.PipeIntoCase do
-  @moduledoc """
-  Flags `case` whose subject is a function call or a pipe, such as `case f(x) do`, instead of
-  piping into `case`.
-
-  A variable, literal, operator expression, field access (`state.x`) or bracket access
-  (`map[:k]`) as the subject is fine.
-  """
   use Credo.Check,
     base_priority: :high,
     category: :readability,
@@ -21,6 +14,15 @@ defmodule GraphConn.CredoChecks.PipeIntoCase do
           end
       """
     ]
+
+  # After `use Credo.Check`, which sets a public @moduledoc of its own.
+  @moduledoc !"""
+             Flags `case` whose subject is a function call or a pipe, such as `case f(x) do`, instead of
+             piping into `case`.
+
+             A variable, literal, operator expression, field access (`state.x`) or bracket access
+             (`map[:k]`) as the subject is fine.
+             """
 
   alias Credo.IssueMeta
 

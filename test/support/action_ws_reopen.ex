@@ -1,8 +1,8 @@
 defmodule GraphConn.Test.ActionWsReopen do
-  @moduledoc """
-  Drops the shared action invoker's action-ws socket under a refused reopen, and waits for it to
-  come back, for tests that drive the reopen path.
-  """
+  @moduledoc !"""
+             Drops the shared action invoker's action-ws socket under a refused reopen, and waits for it to
+             come back, for tests that drive the reopen path.
+             """
 
   import ExUnit.Assertions
 

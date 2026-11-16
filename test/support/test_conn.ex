@@ -1,5 +1,5 @@
 defmodule GraphConn.TestConn do
-  @moduledoc false
+  @moduledoc !"A client that forwards every status change and message to the test that started it."
 
   use GraphConn, otp_app: :graph_conn
 

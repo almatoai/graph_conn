@@ -10,7 +10,7 @@ defmodule GraphConn.ConnectionManager do
   """
 
   defmodule State do
-    @moduledoc false
+    @moduledoc !"The connection manager's state: status, open sockets and pending version lookups."
 
     @type t() :: %__MODULE__{
             base_name: atom(),

@@ -23,6 +23,7 @@
           {GraphConn.CredoChecks.NoNestedCall, []},
           {GraphConn.CredoChecks.PipeMultilineCall, []},
           {GraphConn.CredoChecks.PipeIntoCase, []},
+          {GraphConn.CredoChecks.NoModuledocFalse, []},
           {GraphConn.CredoChecks.LazyLoggerMessage, []},
 
           # === Consistency ===

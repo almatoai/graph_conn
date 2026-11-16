@@ -1,7 +1,7 @@
 defmodule GraphConn.Test.ProxyFixture do
-  @moduledoc """
-  The squid instance the proxy tests connect through, started by `docker-compose.test.yaml`.
-  """
+  @moduledoc !"""
+             The squid instance the proxy tests connect through, started by `docker-compose.test.yaml`.
+             """
 
   # 3128 on the host is often taken by another local squid fixture.
   @port 3129

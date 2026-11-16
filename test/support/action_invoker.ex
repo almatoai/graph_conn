@@ -1,7 +1,7 @@
 # Uses a WebSocket behaviour, so it is left out of a consumer build without gun.
 if Code.ensure_loaded?(:gun) do
   defmodule ActionInvoker do
-    @moduledoc false
+    @moduledoc !"The action invoker the test suite runs against the mock server."
     use GraphConn.ActionApi.Invoker
 
     @spec execute(req_id :: String.t(), capability :: String.t(), params :: map()) :: term()

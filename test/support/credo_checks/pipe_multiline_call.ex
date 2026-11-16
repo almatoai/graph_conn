@@ -1,14 +1,4 @@
 defmodule GraphConn.CredoChecks.PipeMultilineCall do
-  @moduledoc """
-  Flags a function call that spans several lines without its first argument piped in.
-
-  A call is multi-line when its closing parenthesis, or its last argument for a call without
-  parentheses, sits on a later line than its name. A call on the right of `|>` is piped.
-
-  Not checked: macros taking code (definitions, control flow, `use`/`import`/`alias`/`require`,
-  ExUnit assertions, any call with a `do ... end` block), operators, special forms, sigils, field
-  and bracket access, string interpolation, and typespec attributes.
-  """
   use Credo.Check,
     base_priority: :high,
     category: :readability,
@@ -24,6 +14,18 @@ defmodule GraphConn.CredoChecks.PipeMultilineCall do
       When the first argument is itself a multi-line `fn`, bind it to a named value and pipe that.
       """
     ]
+
+  # After `use Credo.Check`, which sets a public @moduledoc of its own.
+  @moduledoc !"""
+             Flags a function call that spans several lines without its first argument piped in.
+
+             A call is multi-line when its closing parenthesis, or its last argument for a call without
+             parentheses, sits on a later line than its name. A call on the right of `|>` is piped.
+
+             Not checked: macros taking code (definitions, control flow, `use`/`import`/`alias`/`require`,
+             ExUnit assertions, any call with a `do ... end` block), operators, special forms, sigils, field
+             and bracket access, string interpolation, and typespec attributes.
+             """
 
   alias Credo.IssueMeta
 
