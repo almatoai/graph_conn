@@ -13,6 +13,17 @@
   longer stays missing: a call or WebSocket open that asks for it looks the versions up again, at
   most once per retry step, and opens that WebSocket once it appears, even if it was asked for
   before `:ready`. An api the Graph removes stays cached, so calls to it get the Graph's `404`.
+- Action params, and the WebSocket frames that carry them, are no longer written to the log at any
+  level: they can hold credentials.
+- Unhandled or unexpected messages are logged by type and id only, and an authentication answer
+  the client cannot use is logged by its field names only, so a token in it stays out of the log.
+- A crashing action handler is logged, and answered, by exception module and stacktrace arities
+  only; a raised `RuntimeError`'s own message is kept. A result that cannot be encoded as JSON is
+  answered with the encode error's module only (`** (Jason.EncodeError)`,
+  `** (Protocol.UndefinedError)`), without its content.
+- Action params that cannot be encoded as JSON fail at once with `{:not_sent, :unencodable_body}`
+  instead of waiting out every ack timeout.
+- REST requests are logged at debug without their query string.
 
 # 1.12.0 <a id="1120"></a>
 

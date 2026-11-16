@@ -28,6 +28,46 @@ defmodule GraphConn.ActionApi.Responder do
   def init(base_name),
     do: {:ok, %{base_name: base_name, responses: %{}}}
 
+  # Crash reports print the state and the message being handled; a response is an action's
+  # result, which can be a secret, so both name it by its request id.
+  @impl GenServer
+  def format_status(status) do
+    status
+    |> _scrub_state()
+    |> _scrub_message()
+  end
+
+  defp _scrub_state(%{state: %{responses: responses} = state} = status) do
+    pending_responses = Map.keys(responses)
+
+    state =
+      state
+      |> Map.delete(:responses)
+      |> Map.put(:pending_responses, pending_responses)
+
+    %{status | state: state}
+  end
+
+  defp _scrub_state(status),
+    do: status
+
+  defp _scrub_message(
+         %{message: {:"$gen_cast", {:register_response, %GraphConn.Request{} = response, every}}} =
+           status
+       ) do
+    req_id = _req_id(response)
+    %{status | message: {:"$gen_cast", {:register_response, req_id, every}}}
+  end
+
+  defp _scrub_message(status),
+    do: status
+
+  defp _req_id(%GraphConn.Request{body: %{id: req_id}}),
+    do: req_id
+
+  defp _req_id(%GraphConn.Request{}),
+    do: nil
+
   @doc """
   Sends `response` via action-ws and registers it for resend every `resend_after` ms until the
   upstream acks it.

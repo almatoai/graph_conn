@@ -774,6 +774,30 @@ defmodule GraphConn.ConnectionManagerTest do
       assert Process.alive?(manager)
     end
 
+    test "keeps the token out of the log when the Graph answers 200 with no expires-at" do
+      Mock.put_expires_at("action_invoker", :absent)
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+
+      {_reply, log} = with_log(fn -> _call_manager(:refresh_token) end)
+
+      assert log =~ ~s(invalid_auth_response, ["_APPLICATION")
+      refute log =~ "_TOKEN\" =>"
+    end
+
+    test "keeps the body out of the log when the Graph answers 200 with broken JSON" do
+      Mock.put_auth_body("action_invoker", ~s({"_TOKEN": "tok-s3cret", "expires-at": 1))
+
+      assert {:ok, _sup_pid} = TestClient.start(auto_connect: :just_versions)
+      assert_receive {:conn_status_changed, :got_api_versions}, 15_000
+
+      {_reply, log} = with_log(fn -> _call_manager(:refresh_token) end)
+
+      assert log =~ "invalid_auth_response, :not_json"
+      refute log =~ "tok-s3cret"
+    end
+
     test "keeps the client up when the Graph answers 200 with a body that is not JSON" do
       Mock.put_auth_body("action_invoker", "<html><body>502 Bad Gateway</body></html>")
 

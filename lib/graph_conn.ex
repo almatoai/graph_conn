@@ -25,7 +25,7 @@ defmodule GraphConn do
     end
 
     def handle_message(api, msg, _) do
-      Logger.debug("Received new message #{inspect(msg)} from #{api}")
+      Logger.debug("Received #{msg["type"]} message from #{api}")
     end
   end
   ```
@@ -247,8 +247,14 @@ defmodule GraphConn do
         do: Logger.debug("new #{from_api} connection status: #{inspect(status)}")
 
       @impl GraphConn
-      def handle_message(from_api, msg, _internal_state),
-        do: Logger.warning("Received unhandled message from #{from_api}: #{inspect(msg)}")
+      def handle_message(from_api, msg, _internal_state) do
+        log = fn ->
+          summary = GraphConn.FrameSummary.summarize(msg)
+          "Received unhandled message from #{from_api}: #{summary}"
+        end
+
+        Logger.warning(log)
+      end
     end
   end
 

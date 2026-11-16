@@ -128,7 +128,7 @@ if Code.ensure_loaded?(Cachex) do
               } = msg,
               _
             ) do
-          Logger.debug("[ActionHandler] Received message: #{inspect(msg)}")
+          Logger.debug("[ActionHandler] Received #{inspect(capability)}", req_id: req_id)
 
           execution_timeout = msg["timeout"] || default_execution_timeout(capability)
           task_fun = _task(req_id, capability, params, execution_timeout)
@@ -150,8 +150,12 @@ if Code.ensure_loaded?(Cachex) do
         # end
 
         def handle_message(:"action-ws", msg, _) do
-          "[ActionHandler] Received unexpected message from action-ws: #{inspect(msg)}"
-          |> Logger.warning()
+          log = fn ->
+            summary = GraphConn.FrameSummary.summarize(msg)
+            "[ActionHandler] Received unexpected message from action-ws: #{summary}"
+          end
+
+          Logger.warning(log)
         end
 
         defp _task(req_id, capability, params, execution_timeout) do
@@ -263,13 +267,13 @@ if Code.ensure_loaded?(Cachex) do
           do: %GraphConn.Request{body: %{id: req_id, type: "sendActionResult", result: response}}
 
         defp _execute_action(req_id, capability, params) do
-          Logger.info("[ActionHandler] Executing #{inspect(capability)}: #{inspect(params)}")
+          Logger.info("[ActionHandler] Executing #{inspect(capability)}", req_id: req_id)
 
           req_id
           |> _safe_execute(capability, params)
           |> case do
             {:ok, response} ->
-              Jason.encode!(response)
+              _encode_result(req_id, response)
 
             {:error, error} ->
               %{error: error}
@@ -310,12 +314,23 @@ if Code.ensure_loaded?(Cachex) do
           end
         end
 
-        # The stacktrace stays in the crash report: this text travels to the Graph and the invoker.
-        defp _exit_banner({exception, _stacktrace}) when is_exception(exception),
-          do: Exception.format_banner(:error, exception)
+        # Encoded here rather than raised in the task, whose crash report would print the result.
+        defp _encode_result(req_id, response) do
+          response
+          |> Jason.encode()
+          |> case do
+            {:ok, json} ->
+              json
 
+            {:error, error} ->
+              banner = ActionApi.Crash.banner(:error, error)
+              _error_result(req_id, 54, "Execution failed: #{banner}")
+          end
+        end
+
+        # This text travels to the Graph and the invoker, so it carries no stacktrace or values.
         defp _exit_banner(reason),
-          do: Exception.format_banner(:exit, reason)
+          do: ActionApi.Crash.banner(:exit, reason)
 
         defp _error_result(req_id, action_status, action_error),
           do: Jason.encode!(%{error: _error(req_id, action_status, action_error)})
@@ -329,11 +344,16 @@ if Code.ensure_loaded?(Cachex) do
           apply(__MODULE__, :execute, [req_id, capability, params])
         catch
           kind, reason ->
-            ("[ActionHandler] #{inspect(capability)} crashed: " <>
-               Exception.format(kind, reason, __STACKTRACE__))
-            |> Logger.error(req_id: req_id)
+            stacktrace = __STACKTRACE__
 
-            banner = Exception.format_banner(kind, reason)
+            log = fn ->
+              crash = ActionApi.Crash.format(kind, reason, stacktrace)
+              "[ActionHandler] #{inspect(capability)} crashed: #{crash}"
+            end
+
+            Logger.error(log, req_id: req_id)
+
+            banner = ActionApi.Crash.banner(kind, reason)
             {:error, _error(req_id, 54, "Execution failed: #{banner}")}
         end
 

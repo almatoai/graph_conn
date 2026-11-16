@@ -102,7 +102,7 @@ defmodule MyConn do
   end
 
   def handle_message(api, msg, _) do
-    Logger.debug("Received new message #{inspect(msg)} from #{api}")
+    Logger.debug("Received #{msg["type"]} message from #{api}")
   end
 end
 ```
@@ -180,6 +180,12 @@ frame over that limit: it logs a warning and sends an `action_status` `59` error
 
 `GraphConn.ws_status(MyHandler, :"action-ws")` returns `:connected` while that WebSocket is up, and
 `:disconnected` while it is down or reopening, was never opened, or the client is not running.
+
+### Logging
+
+graph_conn keeps action params, results, tokens and credentials out of its own logs at every
+level, but enabling SASL reports (`handle_sasl_reports: true`) prints supervisor child specs,
+which carry the client config and its credentials.
 
 ### Invoke call
 

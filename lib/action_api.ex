@@ -25,14 +25,15 @@ defmodule GraphConn.ActionApi do
     other keys it carries.
     The request is not resent.
   - `{:not_sent, reason}` - Request was never sent, because the connection could not be
-    established. Distinct from `{:rate_limited, _}`, which is the only one worth waiting on, and
-    from `{:nack, _}`, which means the Graph received the request and rejected it.
+    established, or because its params could not be encoded as JSON (`:unencodable_body`).
+    Distinct from `{:rate_limited, _}`, which is the only one worth waiting on, and from
+    `{:nack, _}`, which means the Graph received the request and rejected it.
 
     The recognised reasons are `{:upgrade_refused, status}`, `:not_connected`,
-    `:ws_connection_down`, `:not_started` and `{:unknown_api, apis}`. **The set is not closed**:
-    a transport failure passes through as whatever it was -- `:recv_timeout`, `:gun_down`, a gun
-    error term. Match the recognised ones if you act on them, and LOG anything else rather than
-    matching it, or a new transport failure becomes a crash in your caller.
+    `:ws_connection_down`, `:not_started`, `:unencodable_body` and `{:unknown_api, apis}`. **The
+    set is not closed**: a transport failure passes through as whatever it was -- `:recv_timeout`,
+    `:gun_down`, a gun error term. Match the recognised ones if you act on them, and LOG anything
+    else rather than matching it, or a new transport failure becomes a crash in your caller.
   """
   @type execution_error() ::
           :not_found
