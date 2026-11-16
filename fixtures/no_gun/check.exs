@@ -5,6 +5,9 @@ defmodule NoGun.Check do
   alias GraphConn.Request
   alias GraphConn.Test.MockServer
 
+  # Only the plain builds run the check that uses it; prod-bare and test-with_gun build no MockServer.
+  @compile {:no_warn_undefined, MockServer}
+
   @ws_users [GraphConn.EventHandler, GraphConn.ActionApi.Handler, GraphConn.ActionApi.Invoker]
   @expected ~s(Add {:gun, "~> 2.1"} to your deps.)
   # Not graph_conn's own test port, so this can run beside its suite.
