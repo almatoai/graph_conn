@@ -2,6 +2,18 @@
 
 ⚠️ **Breaking changes** in [1.12.0](#1120), [1.11.0](#1110), [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
 
+# 1.12.1 <a id="1121"></a>
+
+## Fixes
+
+- A client whose Graph answered `/api/version` without the `auth` api (as during a Graph restart)
+  now goes back to `{:disconnected, {:missing_api, :auth}}` and looks the versions up again on
+  the retry curve, instead of retrying authentication forever.
+- An api missing from the versions a restarting Graph listed (`graph`, `action-ws`, ...) no
+  longer stays missing: a call or WebSocket open that asks for it looks the versions up again, at
+  most once per retry step, and opens that WebSocket once it appears, even if it was asked for
+  before `:ready`. An api the Graph removes stays cached, so calls to it get the Graph's `404`.
+
 # 1.12.0 <a id="1120"></a>
 
 ## Breaking

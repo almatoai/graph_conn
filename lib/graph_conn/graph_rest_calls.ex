@@ -151,9 +151,9 @@ defmodule GraphConn.GraphRestCalls do
     end
   end
 
-  def authenticate(_base_name, _config, apis) do
-    {:error, "missing :auth key with :path in #{inspect(apis)}"}
-  end
+  # Versions looked up while the graph was restarting can lack `auth`; the caller looks them up again.
+  def authenticate(_base_name, _config, _apis),
+    do: {:error, {:missing_api, :auth}}
 
   @spec execute(
           base_name :: module(),

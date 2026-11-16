@@ -133,6 +133,7 @@ defmodule GraphConn.Mock do
   end
 
   @versions_key :versions
+  @versions_omission_key :versions_omission
   @action_fetch_key :action_fetch
   @ws_upgrade_key :ws_upgrade
   @request_deny_key :request_deny
@@ -169,6 +170,22 @@ defmodule GraphConn.Mock do
   def rate_limit_versions(times, retry_after_seconds),
     do: _arm(@versions_key, times, retry_after_seconds)
 
+  @doc """
+  Arms the mock to leave `api` (one name or a list) out of the next `times` API-version lookups,
+  as a graph still restarting can.
+
+  Like `rate_limit_versions/2` this denies whichever suite asks next. A client looks versions up
+  twice per discovery, once at its main url and once at its auth url, so `times: 2` strips both.
+  """
+  @spec omit_versions_api(api :: String.t() | [String.t()], times :: pos_integer()) :: :ok
+  def omit_versions_api(api, times) when is_binary(api) or is_list(api),
+    do: _arm(@versions_omission_key, times, api)
+
+  @doc false
+  @spec take_versions_omission() :: {:ok, api :: String.t() | [String.t()]} | :error
+  def take_versions_omission,
+    do: _take_rate_limit(@versions_omission_key)
+
   defp _arm(key, times, payload) do
     true = :ets.insert(__MODULE__, {key, times, payload})
     :ok
@@ -184,6 +201,7 @@ defmodule GraphConn.Mock do
           key ::
             String.t()
             | :versions
+            | :versions_omission
             | {:ws_upgrade | :submit_drop, String.t()}
             | {:action_fetch, token :: String.t(), path :: String.t()}
         ) :: :ok
