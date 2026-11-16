@@ -36,7 +36,7 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
 
     # What a node before 1.12.0 sends a caller whose request was denied.
     old_node = fn ->
-      request_id = _await_registered(caller)
+      request_id = _await_sent(caller)
       send(caller, {:rate_limited, request_id, @retry_after_ms})
     end
 
@@ -57,7 +57,7 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
     caller = self()
 
     pre01_node = fn ->
-      request_id = _await_registered(caller)
+      request_id = _await_sent(caller)
       send(caller, {:refused, request_id, {:rate_limited, @retry_after_ms}})
     end
 
@@ -72,6 +72,38 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
     assert {:error, _request_id, {:rate_limited, @retry_after_ms}} = result
     assert log =~ "[ActionInvoker] Rate limited, retry in #{@retry_after_ms}ms"
     refute log =~ "Upstream unavailable"
+  end
+
+  test "a stand-in node answers only once the request has reached the graph" do
+    Mock.ignore_next_request("standalone", 1)
+    [{_key, socket}] = :ets.lookup(ActionInvoker, {:"action-ws", :conn_pid})
+    test_pid = self()
+
+    executed = fn ->
+      ActionInvoker.execute("ExecuteCommand", %{"command" => "ls", "host" => "localhost"})
+    end
+
+    # A suspended socket holds the request, so it cannot reach the graph until resumed.
+    :ok = :sys.suspend(socket)
+
+    try do
+      task = Task.async(executed)
+
+      stand_in = fn ->
+        request_id = _await_sent(task.pid)
+        send(task.pid, {:rate_limited, request_id, @retry_after_ms})
+        send(test_pid, :answered)
+      end
+
+      spawn_link(stand_in)
+      refute_receive :answered, 300
+
+      :ok = :sys.resume(socket)
+      assert_receive :answered, 5_000
+      assert {:error, _request_id, {:rate_limited, @retry_after_ms}} = Task.await(task)
+    after
+      _resume(socket)
+    end
   end
 
   test "names a denial for a request no caller is waiting on" do
@@ -171,6 +203,33 @@ defmodule GraphConn.ActionApi.InvokerRateLimitedTest do
       end)
 
     assert [] == unusable, "reached the caller unusable: #{inspect(unusable)}"
+  end
+
+  # Until the request reached the graph, answering for it leaves its send in flight, to take
+  # whatever the next test arms; the graph took it once the armed `ignore` is used up.
+  defp _await_sent(caller) do
+    request_id = _await_registered(caller)
+    _await_ignore_taken()
+    request_id
+  end
+
+  defp _await_ignore_taken do
+    GraphConn.Mock
+    |> :ets.lookup({:request_deny, "standalone"})
+    |> case do
+      [{_key, 0, :ignore}] ->
+        :ok
+
+      _still_armed ->
+        Process.sleep(10)
+        _await_ignore_taken()
+    end
+  end
+
+  defp _resume(socket) do
+    :sys.resume(socket)
+  catch
+    :exit, _not_suspended -> :ok
   end
 
   defp _await_registered(caller) do
