@@ -3,11 +3,7 @@ defmodule GraphConn.MixProject do
 
   # Advisories waived for `hex.audit` (Hex/OSV ids). `@ignored_advisories` below is the
   # separate list `deps.audit` reads; an id in the wrong list is silently ignored.
-  #
-  # GHSA-w4f7-4cxr-rv3c — self-inconsistent for gun, see `@ignored_advisories` below
-  @ignored_hex_advisories [
-    "GHSA-w4f7-4cxr-rv3c"
-  ]
+  @ignored_hex_advisories []
 
   @spec project() :: keyword()
   def project do
