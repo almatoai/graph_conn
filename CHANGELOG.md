@@ -17,6 +17,7 @@
   level: they can hold credentials.
 - Unhandled or unexpected messages are logged by type and id only, and an authentication answer
   the client cannot use is logged by its field names only, so a token in it stays out of the log.
+- `GraphConn.EventHandler`'s default `handle_event/1` ignores an event instead of raising on it.
 - A crashing action handler is logged, and answered, by exception module and stacktrace arities
   only; a raised `RuntimeError`'s own message is kept. A result that cannot be encoded as JSON is
   answered with the encode error's module only (`** (Jason.EncodeError)`,

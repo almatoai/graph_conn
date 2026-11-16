@@ -149,7 +149,12 @@ defmodule GraphConn.EventHandler do
 
       @doc false
       def handle_event(event) do
-        Logger.warning("[EventHandler] Unhandled event message: #{event}")
+        log = fn ->
+          summary = GraphConn.FrameSummary.summarize(event)
+          "[EventHandler] Unhandled event message: #{summary}"
+        end
+
+        Logger.warning(log)
         {:ok, :ignored}
       end
 

@@ -66,6 +66,18 @@ defmodule GraphConn.SecretLogTest do
       assert log =~ "[EventHandler] Received unexpected message"
       refute log =~ secret
     end
+
+    test "ignores an event the handler does not override, without logging its body",
+         %{secret: secret} do
+      event = %{"type" => "CREATE", "id" => "e1", "body" => %{"password" => secret}}
+      handle = fn -> EventHandler.handle_message(:"events-ws", event, nil) end
+
+      {result, log} = with_log([level: :debug], handle)
+
+      assert {:ok, :ignored} == result
+      assert log =~ ~s([EventHandler] Unhandled event message: type="CREATE" id="e1")
+      refute log =~ secret
+    end
   end
 
   describe "a WebSocket connection, logged at debug" do
