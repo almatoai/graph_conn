@@ -1,10 +1,10 @@
 # Uses a WebSocket behaviour, so it is left out of a consumer build without gun.
 if Code.ensure_loaded?(:gun) do
   defmodule GraphConn.Test.NilMissRegistry do
-    @moduledoc """
-    A request registry that knows no request and answers a lookup miss with `nil`, as a distributed
-    registry still waiting for the caller's registration to arrive does.
-    """
+    @moduledoc !"""
+               A request registry that knows no request and answers a lookup miss with `nil`, as a distributed
+               registry still waiting for the caller's registration to arrive does.
+               """
 
     @behaviour GraphConn.ActionApi.Invoker.RequestRegistry
 
@@ -25,7 +25,7 @@ if Code.ensure_loaded?(:gun) do
   end
 
   defmodule GraphConn.Test.NilMissInvoker do
-    @moduledoc "An action invoker backed by `GraphConn.Test.NilMissRegistry`."
+    @moduledoc !"An action invoker backed by `GraphConn.Test.NilMissRegistry`."
 
     use GraphConn.ActionApi.Invoker, request_registry: GraphConn.Test.NilMissRegistry
   end

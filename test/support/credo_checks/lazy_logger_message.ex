@@ -1,31 +1,4 @@
 defmodule GraphConn.CredoChecks.LazyLoggerMessage do
-  @moduledoc ~S"""
-  Flags a `Logger` call whose message holds a variable bound earlier in an enclosing block from
-  anything but a function.
-
-  Logger macros build their message only when the level is enabled. A message bound ahead of the
-  call is built every time, so an `inspect/1` in it runs even with the level off.
-
-  The message may be the variable itself, a string interpolating it, or a `<>` concatenation with
-  it as an operand. The call may sit directly in the binding's block or anywhere nested in a later
-  statement of it (inside an `if`, `case`, ...).
-
-  Exempt:
-
-    * a variable also used anywhere else in its block, since it is needed regardless of the log.
-      A rebinding such as `message = message <> "!"` counts as such a use;
-    * a function-valued variable (`log = fn -> ... end`), called only when the level is enabled;
-    * a variable not bound in an enclosing block, such as a function parameter;
-    * a variable passed only as metadata (`Logger.info("x", detail: detail)`). Metadata is lazy
-      too, so this is a known gap: only the message is examined.
-
-  Also a known gap: a variable logged by two Logger calls (`Logger.info(m)` in one branch,
-  `Logger.warning(m)` in the other) is not flagged, as each call counts as the other's use.
-
-  When the message names the caller's pid from inside a spawned `fn`, bind the pid, not its
-  string: `caller = self()` outside and `#{inspect(caller)}` inside. Moving `inspect(self())`
-  into the `fn` would log the spawned process instead.
-  """
   use Credo.Check,
     base_priority: :high,
     category: :warning,
@@ -42,6 +15,35 @@ defmodule GraphConn.CredoChecks.LazyLoggerMessage do
           Logger.info(message)
       """
     ]
+
+  # After `use Credo.Check`, which sets a public @moduledoc of its own.
+  @moduledoc !~S"""
+             Flags a `Logger` call whose message holds a variable bound earlier in an enclosing block from
+             anything but a function.
+
+             Logger macros build their message only when the level is enabled. A message bound ahead of the
+             call is built every time, so an `inspect/1` in it runs even with the level off.
+
+             The message may be the variable itself, a string interpolating it, or a `<>` concatenation with
+             it as an operand. The call may sit directly in the binding's block or anywhere nested in a later
+             statement of it (inside an `if`, `case`, ...).
+
+             Exempt:
+
+               * a variable also used anywhere else in its block, since it is needed regardless of the log.
+                 A rebinding such as `message = message <> "!"` counts as such a use;
+               * a function-valued variable (`log = fn -> ... end`), called only when the level is enabled;
+               * a variable not bound in an enclosing block, such as a function parameter;
+               * a variable passed only as metadata (`Logger.info("x", detail: detail)`). Metadata is lazy
+                 too, so this is a known gap: only the message is examined.
+
+             Also a known gap: a variable logged by two Logger calls (`Logger.info(m)` in one branch,
+             `Logger.warning(m)` in the other) is not flagged, as each call counts as the other's use.
+
+             When the message names the caller's pid from inside a spawned `fn`, bind the pid, not its
+             string: `caller = self()` outside and `#{inspect(caller)}` inside. Moving `inspect(self())`
+             into the `fn` would log the spawned process instead.
+             """
 
   alias Credo.IssueMeta
 

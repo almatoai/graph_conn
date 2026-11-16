@@ -1,5 +1,5 @@
 defmodule GraphConn.TestClient do
-  @moduledoc "Starting, stopping and timing the TestConn client from a test."
+  @moduledoc !"Starting, stopping and timing the TestConn client from a test."
 
   import ExUnit.Callbacks, only: [on_exit: 1]
 

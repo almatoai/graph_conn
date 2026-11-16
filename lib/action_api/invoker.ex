@@ -81,7 +81,7 @@ defmodule GraphConn.ActionApi.Invoker do
   @type status() :: :initialized | :ready
 
   defmodule State do
-    @moduledoc false
+    @moduledoc !"The invoker's own state: its status, fetched capabilities and any pending fetch retry."
 
     @type t() :: %__MODULE__{
             capabilities: [any()],

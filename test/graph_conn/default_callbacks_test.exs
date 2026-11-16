@@ -2,7 +2,7 @@ defmodule GraphConn.DefaultCallbacksTest do
   use ExUnit.Case, async: false
 
   defmodule Plain do
-    @moduledoc false
+    @moduledoc "A client that keeps every default callback."
     use GraphConn, otp_app: :graph_conn
   end
 

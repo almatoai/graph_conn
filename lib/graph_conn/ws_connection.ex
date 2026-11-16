@@ -1,5 +1,5 @@
 defmodule GraphConn.WsConnection do
-  @moduledoc false
+  @moduledoc !"One WebSocket connection to a Graph api: upgrade, hello, ping, token refresh and pushes."
 
   use GenServer
   alias GraphConn.{ClientHello, ConnectionManager, FrameSummary, Instrumenter, Request, WS}
@@ -9,7 +9,7 @@ defmodule GraphConn.WsConnection do
   @default_max_frame_bytes 16_777_216
 
   defmodule State do
-    @moduledoc false
+    @moduledoc !"The WebSocket connection's state."
 
     @type t() :: %__MODULE__{
             base_name: atom(),

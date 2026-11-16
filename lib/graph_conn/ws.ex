@@ -1,5 +1,5 @@
 defmodule GraphConn.WS do
-  @moduledoc false
+  @moduledoc !"The gun calls behind a WebSocket connection: connect, upgrade, ping and push."
 
   # :gun wrapper for making connection, ws_upgrade and pushing ws message.
   # Functions from this module are used in WsConnection only.

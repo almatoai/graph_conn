@@ -1,6 +1,6 @@
 if Code.ensure_loaded?(Plug.Cowboy) do
   defmodule GraphConn.Test.EventsMockSocket do
-    @moduledoc false
+    @moduledoc !"The mock server's events-ws socket."
 
     alias GraphConn.Test.MockSocket
     require Logger

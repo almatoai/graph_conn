@@ -1,5 +1,5 @@
 defmodule GraphConn.Supervisor do
-  @moduledoc false
+  @moduledoc !"Supervises one client: its state, connection manager, WebSocket connections and HTTP pool."
   use Supervisor
   alias GraphConn.Tools
 

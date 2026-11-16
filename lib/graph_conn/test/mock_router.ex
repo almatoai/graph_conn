@@ -1,6 +1,6 @@
 if Code.ensure_loaded?(Plug.Cowboy) do
   defmodule GraphConn.Test.MockRouter do
-    @moduledoc false
+    @moduledoc !"The mock server's REST routes: versions, auth and the action api."
 
     use Plug.Router
     alias GraphConn.Mock

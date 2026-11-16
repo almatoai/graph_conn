@@ -1,5 +1,5 @@
 defmodule GraphConn.WsConnections do
-  @moduledoc false
+  @moduledoc !"Dynamic supervisor for one client's WebSocket connections."
 
   use DynamicSupervisor
 

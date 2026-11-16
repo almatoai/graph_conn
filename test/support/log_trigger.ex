@@ -1,12 +1,12 @@
 defmodule GraphConn.Test.LogTrigger do
-  @moduledoc """
-  A `:logger` handler that runs a function once, inside the calling test's own process, when that
-  process logs a line containing a given text.
+  @moduledoc !"""
+             A `:logger` handler that runs a function once, inside the calling test's own process, when that
+             process logs a line containing a given text.
 
-  A handler runs in the process that logs, so the function lands at exactly the point in the code
-  under test where the line is logged: a message it sends arrives after everything before that line
-  and before anything after it.
-  """
+             A handler runs in the process that logs, so the function lands at exactly the point in the code
+             under test where the line is logged: a message it sends arrives after everything before that line
+             and before anything after it.
+             """
 
   @doc """
   Runs `fun` in the calling process the `nth` time it logs a line containing `text`, until the

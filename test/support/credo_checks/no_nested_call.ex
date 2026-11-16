@@ -1,22 +1,4 @@
 defmodule GraphConn.CredoChecks.NoNestedCall do
-  @moduledoc ~S"""
-  Flags a function call passed directly as another call's argument, such as `f(g(x))` or
-  `max(div(x, 4), 1)`.
-
-  Allowed: `self()` as an argument anywhere (`send(self(), :x)`), a call as a field value of a
-  data literal, a call as an operator operand, and any call interpolated into a string
-  (`"#{f(x)}"`). Data literals are tuples, maps, structs, lists,
-  keyword lists (so `foo(x, timeout: t())` passes) and binaries. A call nested inside an
-  interpolated call (`"#{f(g(x))}"`) is still nested.
-
-  Not treated as calls: operators, `fn`, `&` captures, `@attr`, `__MODULE__` and the other
-  special forms, sigils, `unquote`, field access (`state.x`) and bracket access (`map[:k]`).
-
-  Arguments that are not examined: those of definitions, control flow (`if`, `case`, `with`,
-  ...), `use`/`import`/`alias`/`require`, ExUnit assertions and any call with a `do ... end`
-  block, since those take code or conditions rather than values. Typespec attributes are
-  skipped entirely. Calls inside all of these are still checked as calls of their own.
-  """
   use Credo.Check,
     base_priority: :high,
     category: :readability,
@@ -32,6 +14,26 @@ defmodule GraphConn.CredoChecks.NoNestedCall do
           max(quarter, 1)
       """
     ]
+
+  # After `use Credo.Check`, which sets a public @moduledoc of its own.
+  @moduledoc !~S"""
+             Flags a function call passed directly as another call's argument, such as `f(g(x))` or
+             `max(div(x, 4), 1)`.
+
+             Allowed: `self()` as an argument anywhere (`send(self(), :x)`), a call as a field value of a
+             data literal, a call as an operator operand, and any call interpolated into a string
+             (`"#{f(x)}"`). Data literals are tuples, maps, structs, lists,
+             keyword lists (so `foo(x, timeout: t())` passes) and binaries. A call nested inside an
+             interpolated call (`"#{f(g(x))}"`) is still nested.
+
+             Not treated as calls: operators, `fn`, `&` captures, `@attr`, `__MODULE__` and the other
+             special forms, sigils, `unquote`, field access (`state.x`) and bracket access (`map[:k]`).
+
+             Arguments that are not examined: those of definitions, control flow (`if`, `case`, `with`,
+             ...), `use`/`import`/`alias`/`require`, ExUnit assertions and any call with a `do ... end`
+             block, since those take code or conditions rather than values. Typespec attributes are
+             skipped entirely. Calls inside all of these are still checked as calls of their own.
+             """
 
   alias Credo.IssueMeta
 

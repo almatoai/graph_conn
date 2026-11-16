@@ -1,11 +1,11 @@
 defmodule GraphConn.Test.DropProxy do
-  @moduledoc """
-  A TCP proxy in front of the mock server that can silently drop the flows it carries.
+  @moduledoc !"""
+             A TCP proxy in front of the mock server that can silently drop the flows it carries.
 
-  A dropped flow keeps the client's socket open, so no FIN reaches it, closes the upstream, and
-  answers the client's next bytes with an RST: what a middlebox that expired an idle flow does.
-  Flows accepted after a drop are carried normally.
-  """
+             A dropped flow keeps the client's socket open, so no FIN reaches it, closes the upstream, and
+             answers the client's next bytes with an RST: what a middlebox that expired an idle flow does.
+             Flows accepted after a drop are carried normally.
+             """
 
   use GenServer
 

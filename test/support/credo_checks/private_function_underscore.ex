@@ -1,15 +1,17 @@
 defmodule GraphConn.CredoChecks.PrivateFunctionUnderscore do
-  @moduledoc """
-  Flags private functions whose name doesn't start with `_`.
-
-  Project convention: every `defp` is `defp _name(...)`.
-  """
   use Credo.Check,
     base_priority: :high,
     category: :readability,
     explanations: [
       check: "Private functions must start with `_` (e.g. `defp _open_upstream/2`)."
     ]
+
+  # After `use Credo.Check`, which sets a public @moduledoc of its own.
+  @moduledoc !"""
+             Flags private functions whose name doesn't start with `_`.
+
+             Project convention: every `defp` is `defp _name(...)`.
+             """
 
   alias Credo.IssueMeta
 

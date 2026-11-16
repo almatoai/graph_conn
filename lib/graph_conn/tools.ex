@@ -1,5 +1,5 @@
 defmodule GraphConn.Tools do
-  @moduledoc false
+  @moduledoc !"Small conversions shared across the client."
 
   # Set of tool functions for internal library use.
 
