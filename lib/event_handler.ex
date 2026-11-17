@@ -68,15 +68,15 @@ defmodule GraphConn.EventHandler do
 
       @impl GraphConn
       @doc false
-      def on_status_change(:ready, internal_state),
+      def on_status_change(:ready, _internal_state),
         do: :ok = GraphConn.open_ws_connection(__MODULE__, :"events-ws")
 
-      def on_status_change(_, internal_state),
+      def on_status_change(_new_status, _internal_state),
         do: :ok
 
       @impl GraphConn
       @doc false
-      def on_status_change(:"events-ws", :ready, internal_state) do
+      def on_status_change(:"events-ws", :ready, _internal_state) do
         Logger.info("[EventHandler] New EventWS status: :ready")
         register()
         subscribe()
