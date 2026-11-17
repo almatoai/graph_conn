@@ -1,10 +1,7 @@
 # Uses a WebSocket behaviour, so it is left out of a consumer build without gun.
 if Code.ensure_loaded?(:gun) do
   defmodule GraphConn.Test.NilMissRegistry do
-    @moduledoc !"""
-               A request registry that knows no request and answers a lookup miss with `nil`, as a distributed
-               registry still waiting for the caller's registration to arrive does.
-               """
+    @moduledoc !"A request registry that answers a miss with `nil`, as a distributed one does before it sees the registration."
 
     @behaviour GraphConn.ActionApi.Invoker.RequestRegistry
 
