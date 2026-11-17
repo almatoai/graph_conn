@@ -231,7 +231,7 @@ defmodule GraphConn.ActionApi.Invoker do
             |> Logger.warning()
         end
 
-        # Acked first: delivery can wait out a registry that has not seen the request yet.
+        # Acked first: a registry missing with nil retries delivery 5 s; Local drops it at once.
         result = _decode_result(msg["result"])
         RequestRegistry.respond(__MODULE__, msg["id"], result, @request_registry)
       end
