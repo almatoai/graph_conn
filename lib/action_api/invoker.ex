@@ -385,8 +385,10 @@ defmodule GraphConn.ActionApi.Invoker do
       with provided `params` and returing either result from action handler or
       some error message.
 
-      IMPORTANT! If "timeout" is provided in params it MUST be in seconds (since
-      defaults are in seconds).
+      IMPORTANT! If "timeout" is provided in params it MUST be a whole number of seconds, at least
+      one (since defaults are in seconds), as an integer or a string of one (`30` or `"30"`).
+      Anything else, a float, `"1.5"`, `0` or a negative number included, is refused before the
+      request is sent, with `{:error, req_id, {:not_sent, {:invalid_timeout, timeout}}}`.
 
       Until the request is acked it is sent up to #{@number_of_request_retries} times, `:ack_timeout`
       apart, and each send can first wait out a WebSocket reopen of up to
@@ -405,22 +407,39 @@ defmodule GraphConn.ActionApi.Invoker do
               | {:ok, response :: any()}
               | {:error, req_id :: String.t(), ActionApi.execution_error()}
       def execute(ticket_id, action_handler_id, capability_name, %{} = params, opts \\ []) do
-        ack_timeout = Keyword.get(opts, :ack_timeout, @ack_timeout)
-
-        params =
+        caller_params =
           params
           |> Enum.map(fn {key, val} -> {to_string(key), val} end)
           |> Enum.into(%{})
-          |> _inject_defaults(capability_name)
 
-        timeout =
-          case params["timeout"] do
-            timeout when is_binary(timeout) -> String.to_integer(timeout) * 1_000
-            timeout when is_integer(timeout) -> timeout * 1_000
-            other -> nil
-          end
+        params = _inject_defaults(caller_params, capability_name)
 
-        params = Map.put(params, "timeout", timeout)
+        params["timeout"]
+        |> _timeout_ms()
+        |> case do
+          {:ok, timeout} ->
+            params = Map.put(params, "timeout", timeout)
+            _send_request(ticket_id, action_handler_id, capability_name, params, timeout, opts)
+
+          :error ->
+            source = _timeout_source(caller_params)
+            _refuse_timeout(ticket_id, action_handler_id, capability_name, params, source)
+        end
+      end
+
+      @spec _send_request(
+              ticket_id :: String.t(),
+              action_handler_id :: String.t(),
+              capability_name :: String.t(),
+              params :: map(),
+              timeout_ms :: pos_integer() | nil,
+              opts :: Keyword.t()
+            ) ::
+              :ok
+              | {:ok, response :: any()}
+              | {:error, req_id :: String.t(), ActionApi.execution_error()}
+      defp _send_request(ticket_id, action_handler_id, capability_name, params, timeout, opts) do
+        ack_timeout = Keyword.get(opts, :ack_timeout, @ack_timeout)
 
         request =
           %ActionApi.Request{id: request_id} =
@@ -496,6 +515,52 @@ defmodule GraphConn.ActionApi.Invoker do
 
       defp _refusals_after(_attempt),
         do: :answer
+
+      # Whole seconds, at least one, as an integer or a string of one; anything else is refused
+      # rather than guessed at.
+      defp _timeout_ms(nil),
+        do: {:ok, nil}
+
+      defp _timeout_ms(seconds) when is_integer(seconds) and seconds >= 1,
+        do: {:ok, seconds * 1_000}
+
+      defp _timeout_ms(seconds) when is_binary(seconds) do
+        seconds
+        |> Integer.parse()
+        |> case do
+          {parsed, ""} -> _timeout_ms(parsed)
+          _not_an_integer -> :error
+        end
+      end
+
+      defp _timeout_ms(_invalid),
+        do: :error
+
+      defp _timeout_source(%{"timeout" => _given}),
+        do: "the caller"
+
+      defp _timeout_source(_defaulted),
+        do: "the capability defaults"
+
+      defp _refuse_timeout(ticket_id, action_handler_id, capability_name, params, source) do
+        request_id =
+          %{
+            ticket_id: ticket_id,
+            handler: action_handler_id,
+            capability: capability_name,
+            params: params
+          }
+          |> ActionApi.Request._calculate_id()
+
+        Logger.metadata(req_id: request_id)
+        timeout = params["timeout"]
+
+        ("[ActionInvoker] Not executing #{capability_name}: timeout #{inspect(timeout)} from " <>
+           "#{source} is not a positive whole number of seconds")
+        |> Logger.warning()
+
+        {:error, request_id, {:not_sent, {:invalid_timeout, timeout}}}
+      end
 
       defp _inject_defaults(params, capability_name) do
         capability_name

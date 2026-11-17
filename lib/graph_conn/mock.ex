@@ -151,6 +151,7 @@ defmodule GraphConn.Mock do
   @token_update_key :token_update
   @ws_upgrades_key :ws_upgrades
   @acknowledged_key :acknowledged
+  @submitted_key :submitted
 
   @doc """
   Arms the mock to answer the next `times` authentication requests carrying `client_id`
@@ -518,6 +519,30 @@ defmodule GraphConn.Mock do
       [{_key, client_hello}] -> client_hello
       [] -> nil
     end
+  end
+
+  @doc false
+  @spec put_submitted(request_id :: String.t(), parameters :: map()) :: :ok
+  def put_submitted(request_id, parameters) do
+    true = :ets.insert(__MODULE__, {{@submitted_key, request_id}, parameters})
+    :ok
+  end
+
+  @doc """
+  Tells whether any invoker submitted the mock an action whose parameters hold `value` under
+  `key`, an atom since the mock decodes frames with atom keys.
+
+  Submissions are never cleared, so this answers for every one since the mock started, across
+  tests. Match on a value unique to the calling test, such as a fresh UUID.
+  """
+  @spec submitted_with?(key :: atom(), value :: term()) :: boolean()
+  def submitted_with?(key, value) do
+    __MODULE__
+    |> :ets.match_object({{@submitted_key, :_}, :_})
+    |> Enum.any?(fn
+      {_key, %{} = parameters} -> Map.get(parameters, key) == value
+      {_key, _not_an_object} -> false
+    end)
   end
 
   @doc "Tells whether any client sent the mock an `acknowledged` for `request_id`."

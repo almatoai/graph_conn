@@ -8,6 +8,9 @@
 
 - `GraphRestCalls.get_versions/2` returns `{:error, {:unexpected_status, status}}` for a status
   other than 200 and 429, instead of `{:error, %Finch.Response{}}`.
+- `ActionApi.Invoker.execute/5` refuses a `"timeout"` param that is not a positive integer or a
+  string of one with `{:error, req_id, {:not_sent, {:invalid_timeout, timeout}}}`, instead of
+  dropping a float timeout, raising on a string such as `"1.5"`, or sending a zero or negative one.
 
 ## Fixes
 

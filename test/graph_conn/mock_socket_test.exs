@@ -35,6 +35,28 @@ defmodule GraphConn.Test.MockSocketTest do
     end
   end
 
+  describe "a submitAction frame whose parameters are not an object" do
+    for parameters <- [nil, ["ls"]] do
+      @parameters parameters
+
+      test "leaves submitted_with?/2 answering when its parameters are #{inspect(parameters)}" do
+        {:ok, _supervisor} = TestClient.start()
+        assert_receive {:conn_status_changed, :ready}
+        :ok = GraphConn.open_ws_connection(TestConn, :"action-ws")
+        assert_receive {:conn_status_changed, :"action-ws", :ready}, 15_000
+        marker = UUID.uuid4()
+
+        _submit(@parameters)
+        _submit(%{command: marker})
+
+        assert GraphConn.Mock.submitted_with?(:command, marker)
+        # Matching nothing, so every recorded row is visited and not just those before a hit.
+        unmatched = UUID.uuid4()
+        refute GraphConn.Mock.submitted_with?(:command, unmatched)
+      end
+    end
+  end
+
   describe "an invalid events-ws frame" do
     test "is answered with a 400 to the sending socket only, not to the rest of its key" do
       {:ok, _supervisor} = TestClient.start()
@@ -75,5 +97,23 @@ defmodule GraphConn.Test.MockSocketTest do
   defp _events_key do
     [{:versions, %{"events-ws": %{path: path}}}] = :ets.lookup(TestConn, :versions)
     path
+  end
+
+  # Sends a raw submitAction and waits for the mock's answer, so the frame has been recorded. An
+  # unknown capability is refused there, so no handler ever runs it.
+  defp _submit(parameters) do
+    id = UUID.uuid4()
+
+    body = %{
+      type: "submitAction",
+      id: id,
+      handler: "no-such-handler",
+      capability: "NoSuchCapability",
+      parameters: parameters,
+      timeout: 5_000
+    }
+
+    assert :ok = TestConn.execute(:"action-ws", %Request{body: body})
+    assert_receive {:received_message, :"action-ws", %{"id" => ^id}}, 5_000
   end
 end

@@ -103,6 +103,30 @@ defmodule GraphConn.ActionApi.InvokerTest do
                _execute_new("ExecuteCommand", params)
     end
 
+    test "takes a timeout given as a string of an integer number of seconds" do
+      marker = UUID.uuid4()
+      params = %{"other_handler" => "Echo", "command" => marker, "timeout" => "30"}
+
+      assert {:ok, %{"command" => ^marker, "timeout" => 30_000}} =
+               _execute_new("ExecuteCommand", params)
+
+      assert GraphConn.Mock.submitted_with?(:command, marker)
+    end
+
+    for timeout <- [1.5, "1.5", "abc", "", true, [30], 0, "0", -5, "-5"] do
+      @timeout timeout
+
+      test "refuses a timeout of #{inspect(timeout)} without sending the request" do
+        marker = UUID.uuid4()
+        params = %{"other_handler" => "Echo", "command" => marker, "timeout" => @timeout}
+
+        assert {:error, _req_id, {:not_sent, {:invalid_timeout, @timeout}}} =
+                 _execute_new("ExecuteCommand", params)
+
+        refute GraphConn.Mock.submitted_with?(:command, marker)
+      end
+    end
+
     test "request understands atom keys" do
       params = %{other_handler: "Echo", command: "ls", timeout: 123}
 
