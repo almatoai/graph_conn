@@ -4,13 +4,17 @@ defmodule GraphConn.TestConn do
   use GraphConn, otp_app: :graph_conn
 
   @impl GraphConn
-  @spec on_status_change(new_status :: atom(), internal_state :: map()) :: term()
+  @spec on_status_change(new_status :: GraphConn.status(), internal_state :: map()) :: term()
   def on_status_change(new_status, %{forward_to: test_pid}) do
     send(test_pid, {:conn_status_changed, new_status})
   end
 
   @impl GraphConn
-  @spec on_status_change(api :: atom(), new_status :: atom(), internal_state :: map()) :: term()
+  @spec on_status_change(
+          api :: atom(),
+          new_status :: GraphConn.ws_status(),
+          internal_state :: map()
+        ) :: term()
   def on_status_change(api, new_status, %{forward_to: test_pid}) do
     send(test_pid, {:conn_status_changed, api, new_status})
   end

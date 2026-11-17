@@ -14,6 +14,9 @@
 - An unusable `/api/version` answer (not JSON, not an object, no well-formed entry) no longer
   crashes the client and takes the host app down; it is retried. Malformed entries are skipped.
 - `/api/version` answers are logged by status, content type and size, never by body.
+- The `on_status_change` callback specs name every status passed: `GraphConn.status()` for the main
+  connection, and `GraphConn.ws_status()`, `:ready` or any exit reason, for a WebSocket.
+- `GraphConn.ActionApi.Invoker`'s default `on_status_change/2` no longer raises on a tuple status.
 
 # 1.12.1 <a id="1121"></a>
 

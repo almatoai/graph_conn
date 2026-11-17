@@ -48,12 +48,22 @@ defmodule GraphConn.WsCloseTest do
     end
   end
 
-  test "any other close from the server still ends the socket abnormally",
+  test "any other close from the server still ends the socket abnormally and reports its reason",
        %{ws_connection: ws_connection} do
     monitor = Process.monitor(ws_connection)
     Mock.close_ws_connection("invoker", 1011, "internal error")
 
     assert_receive {:DOWN, ^monitor, :process, ^ws_connection,
                     "server sent close request: internal error"}
+
+    assert_receive {:conn_status_changed, :"action-ws",
+                    "server sent close request: internal error"}
+  end
+
+  test "a socket exiting with a non-binary shutdown reason reports that reason unchanged",
+       %{ws_connection: ws_connection} do
+    Process.exit(ws_connection, {:shutdown, :normal})
+
+    assert_receive {:conn_status_changed, :"action-ws", {:shutdown, :normal}}
   end
 end

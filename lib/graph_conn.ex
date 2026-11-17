@@ -102,7 +102,8 @@ defmodule GraphConn do
 
   Once connection is started, it will pick api versions from Graph server and authenticate
   using `:credentials` from configuration. When everything is ready, `on_status_change/2` callback
-  will be invoked with `new_status = :ready`.
+  will be invoked with `new_status = :ready`. Not every status is an atom: see `t:status/0` and,
+  for WebSocket connections, `t:ws_status/0`.
 
   Current connection status can be also checked explicitly:
 
@@ -123,6 +124,25 @@ defmodule GraphConn do
 
   @type uuid() :: <<_::288>>
   @type status() :: :got_api_versions | :ready | {:disconnected, any()}
+
+  @typedoc """
+  What `on_status_change/3` receives for a WebSocket connection: `:ready` once it is up, otherwise
+  the exit reason of the process that held it, passed on unchanged. The shapes graph_conn itself
+  stops a connection with:
+
+    * `{:disconnected, reason}` when the connection to the server went down, or
+      `{:disconnected, {:rejected_by_server, message}}` when the server refused the token
+    * `{:shutdown, "server sent close request: ..."}` for a 1000 or 1001 close
+    * `"server sent close request: ..."` for any other close
+    * `"server sent close request"` for a close frame without a code
+    * `"WS connection went down"` when the underlying connection closed
+    * `{:error, "Missing pong for more than ... seconds"}` when pings went unanswered
+
+  Any other exit reason can arrive as well, `{:shutdown, reason}` with a reason that is not a
+  binary among them, so a handler matching these shapes still needs a catch-all clause.
+  """
+  @type ws_status() :: :ready | (exit_reason :: term())
+
   @type headers() :: [{String.t(), String.t()}]
 
   defdelegate status(base_name), to: GraphConn.ConnectionManager
@@ -261,18 +281,24 @@ defmodule GraphConn do
   @doc """
   This callback is invoked when status of main connection is changed.
 
+  `new_status` is a `t:status/0`, so it can be a `{:disconnected, reason}` tuple as well as an atom.
   `internal_state` is term that was set as second parameter of `start_supervisor/2`.
   """
-  @callback on_status_change(new_status :: atom(), internal_state :: term()) ::
+  @callback on_status_change(new_status :: status(), internal_state :: term()) ::
               any()
 
   @doc """
   This callback is invoked when status of non main connection is changed.
 
+  `new_status` is a `t:ws_status/0`: `:ready`, or whatever reason the connection went down with,
+  so a handler needs a clause that accepts any term.
   `internal_state` is term that was set as second parameter of `start_supervisor/2`.
   """
-  @callback on_status_change(from_api :: atom(), new_status :: atom(), internal_state :: term()) ::
-              any()
+  @callback on_status_change(
+              from_api :: atom(),
+              new_status :: ws_status(),
+              internal_state :: term()
+            ) :: any()
 
   @doc """
   This callback is invoked when there's a new `message` received from Graph server's
