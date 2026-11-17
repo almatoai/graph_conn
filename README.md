@@ -191,7 +191,8 @@ which carry the client config and its credentials.
 
 Once connection is started, it will pick api versions from Graph server and authenticate
 using `:credentials` from configuration. When everything is ready, `on_status_change/2` callback
-will be invoked with `new_status = :ready`.
+will be invoked with `new_status = :ready`. Not every status is an atom: see `GraphConn.status()`
+and, for WebSocket connections, `GraphConn.ws_status()`.
 
 Current connection status can be also checked explicitly:
 
