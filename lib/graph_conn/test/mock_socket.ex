@@ -196,6 +196,9 @@ if Code.ensure_loaded?(Plug.Cowboy) do
            %{type: "submitAction", id: id, capability: capability} = request,
            %{registry_key: "action_invoker", client_type: client_type} = state
          ) do
+      parameters = Map.get(request, :parameters, %{})
+      :ok = GraphConn.Mock.put_submitted(id, parameters)
+
       client_type
       |> GraphConn.Mock.take_request_denial()
       |> case do
