@@ -183,7 +183,7 @@ defmodule GraphConn.ActionApi.Invoker do
         |> _cancel_fetch()
       end
 
-      def on_status_change(new_status, %InvokerState{status: current_status} = state) do
+      def on_status_change(new_status, %InvokerState{status: current_status}) do
         "[ActionInvoker] Unhandled ActionAPI status change from #{current_status} to #{inspect(new_status)}"
         |> Logger.debug()
       end
