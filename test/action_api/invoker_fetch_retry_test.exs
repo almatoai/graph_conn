@@ -8,7 +8,7 @@ defmodule GraphConn.ActionApi.InvokerFetchRetryTest do
   import ExUnit.CaptureLog, only: [with_log: 1]
 
   alias GraphConn.ActionApi.Invoker.State, as: InvokerState
-  alias GraphConn.{ClientState, Mock, TestClient}
+  alias GraphConn.{ClientState, Mock, MockSockets, TestClient}
   alias GraphConn.Test.IsolatedInvoker
 
   @token "action_isolated"
@@ -196,8 +196,10 @@ defmodule GraphConn.ActionApi.InvokerFetchRetryTest do
 
   describe "reconfigure/0" do
     setup do
+      known_sockets = MockSockets.registered("isolated")
       _start_invoker()
       :ok = _await_ready()
+      {:ok, known_sockets: known_sockets}
     end
 
     test "keeps the capabilities it had when the fetch fails" do
@@ -223,17 +225,16 @@ defmodule GraphConn.ActionApi.InvokerFetchRetryTest do
       refute_received {:DOWN, ^manager_ref, :process, _manager, _reason}
     end
 
-    test "survives a 401 when a configChanged message makes it reconfigure" do
+    test "survives a 401 when a configChanged message makes it reconfigure",
+         %{known_sockets: known_sockets} do
       Process.register(self(), IsolatedInvoker.Observer)
-      :ok = _await_isolated_socket()
+      deadline = System.monotonic_time(:millisecond) + @ready_deadline_ms
+      mock_socket = MockSockets.await_new("isolated", known_sockets, deadline)
       manager_ref = _monitor_connection_manager()
       Mock.fail_action_fetch(@token, "capabilities", 1, {:status, 401, ""})
       config_changed = Jason.encode!(%{type: "configChanged"})
 
-      Registry.TestSockets
-      |> Registry.dispatch({:client, "isolated"}, fn entries ->
-        for {socket, _registration} <- entries, do: send(socket, config_changed)
-      end)
+      send(mock_socket, config_changed)
 
       assert_receive {:reconfigured, :ok}
       assert :error == Mock.take_action_fetch_failure(@token, "capabilities")
@@ -263,24 +264,6 @@ defmodule GraphConn.ActionApi.InvokerFetchRetryTest do
 
   defp _await_fetch_retry_cleared,
     do: _await_state(&match?(%InvokerState{fetch_retry: nil}, &1))
-
-  defp _await_isolated_socket(
-         deadline \\ System.monotonic_time(:millisecond) + @ready_deadline_ms
-       ) do
-    Registry.TestSockets
-    |> Registry.lookup({:client, "isolated"})
-    |> case do
-      [_socket | _others] ->
-        :ok
-
-      [] ->
-        assert System.monotonic_time(:millisecond) < deadline,
-               "the invoker never opened action-ws"
-
-        Process.sleep(20)
-        _await_isolated_socket(deadline)
-    end
-  end
 
   defp _fetch_warnings(log) do
     log

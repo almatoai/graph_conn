@@ -210,6 +210,14 @@ request = %GraphConn.Request{
 {:ok, %GraphConn.Response{} = response} = MyConn.execute(:action, request)
 ```
 
+To build URLs without a request to the api, resolve an api's version instead. An api the Graph has
+not listed yet is `{:error, {:unknown_api, known_apis}}` and is looked up again, so a later call
+can find it.
+
+```elixir
+{:ok, %{path: path, protocol: protocol, subprotocol: subprotocol}} = MyConn.version(:graph)
+```
+
 ## Documentation
 
 Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc):

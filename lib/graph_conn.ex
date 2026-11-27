@@ -145,11 +145,15 @@ defmodule GraphConn do
 
   @type headers() :: [{String.t(), String.t()}]
 
+  @typedoc "An api's entry in the Graph's versions: its path, and its protocol and subprotocol."
+  @type version() :: %{path: String.t(), protocol: String.t(), subprotocol: String.t()}
+
   defdelegate status(base_name), to: GraphConn.ConnectionManager
   defdelegate execute(base_name, target_api, request), to: GraphConn.ConnectionManager
   defdelegate open_ws_connection(base_name, target_api), to: GraphConn.ConnectionManager
   defdelegate max_frame_bytes(base_name, target_api), to: GraphConn.ConnectionManager
   defdelegate ws_status(base_name, target_api), to: GraphConn.ConnectionManager
+  defdelegate version(base_name, target_api), to: GraphConn.ConnectionManager
 
   defdelegate get_client_state(base_name), to: GraphConn.ClientState, as: :get_state
   defdelegate put_client_state(base_name, new_state), to: GraphConn.ClientState, as: :put_state
@@ -240,6 +244,22 @@ defmodule GraphConn do
               | {:error, reason :: term()}
       def execute(target_api, %GraphConn.Request{} = request, opts \\ []),
         do: GraphConn.ConnectionManager.execute(__MODULE__, target_api, request, opts)
+
+      @doc """
+      Returns the version the Graph listed for `target_api`, without sending anything to it.
+
+      While the client is starting it can block for up to `:startup_wait_ms` (see `GraphConn`)
+      for the versions to arrive.
+
+      An api the versions lack is `{:error, {:unknown_api, known_apis}}`, and is looked up again
+      on the retry curve, so a later call can find it.
+      """
+      @spec version(target_api :: atom()) ::
+              {:ok, GraphConn.version()}
+              | {:error, {:unknown_api, known_apis :: [atom()]}}
+              | {:error, :not_started}
+      def version(target_api),
+        do: GraphConn.ConnectionManager.version(__MODULE__, target_api)
 
       # Invokes `fun` function yielding client state to it.
       defp _with_state(fun) do

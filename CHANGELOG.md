@@ -2,6 +2,13 @@
 
 ⚠️ **Breaking changes** in [1.13.0](#1130), [1.12.0](#1120), [1.11.0](#1110), [1.10.0](#1100), [1.9.2](#192), [1.9.0](#190), [1.7.0](#170).
 
+# 1.13.1 <a id="1131"></a>
+
+## Features
+
+- `GraphConn.version/2` and `version/1` on a client resolve an api's version without a request to
+  the api; an api the versions lack is looked up again, as a call to it would be.
+
 # 1.13.0 <a id="1130"></a>
 
 ## Breaking
