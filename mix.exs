@@ -11,7 +11,7 @@ defmodule GraphConn.MixProject do
 
     [
       app: :graph_conn,
-      version: "1.13.0",
+      version: "1.13.1",
       elixir: "~> 1.17",
       start_permanent: true,
       test_coverage: [tool: ExCoveralls],

@@ -5,7 +5,7 @@ defmodule GraphConn.ConnectionManager do
   Owns the auth token (acquired and refreshed via `GraphConn.GraphRestCalls`),
   the cached set of API versions advertised by the Graph server, and the map
   of open WebSocket connections. Public functions `execute/3`,
-  `open_ws_connection/2`, and `status/1` are invoked through the
+  `open_ws_connection/2`, `version/2` and `status/1` are invoked through the
   `use GraphConn` entrypoint module.
   """
 
@@ -52,7 +52,7 @@ defmodule GraphConn.ConnectionManager do
 
   require Logger
 
-  @typep version() :: %{path: String.t(), protocol: String.t(), subprotocol: String.t()}
+  @typep version() :: GraphConn.version()
 
   # How long a caller waits for a client to become usable before giving up, and how often it
   # looks while waiting. See `_await_versions/1`.
@@ -194,6 +194,23 @@ defmodule GraphConn.ConnectionManager do
     base_name
     |> _name()
     |> GenServer.cast({:open_ws_connection, target_api})
+  end
+
+  @doc """
+  Returns the version the graph listed for `target_api`, waiting for this client's versions as
+  `execute/4` does. Sends nothing to `target_api` and opens no connection.
+
+  An api the versions lack is `{:error, {:unknown_api, known_apis}}`, and is looked up again on
+  the retry curve, so a later call can find it.
+  """
+  @spec version(base_name :: atom(), target_api :: atom()) ::
+          {:ok, GraphConn.version()}
+          | {:error, {:unknown_api, known_apis :: [atom()]}}
+          | {:error, :not_started}
+  def version(base_name, target_api) do
+    base_name
+    |> _lookup_version(target_api)
+    |> _warn_not_started(base_name, "no #{target_api} version yet")
   end
 
   @doc """
@@ -1200,13 +1217,28 @@ defmodule GraphConn.ConnectionManager do
           {:ok, version()} | {:error, {:unknown_api, [atom()]}} | {:error, :not_started}
   defp _get_version(base_name, target_api) do
     base_name
+    |> _lookup_version(target_api)
+    |> _warn_not_started(base_name, "refusing #{target_api} request")
+  end
+
+  defp _warn_not_started({:error, :not_started} = not_started, base_name, outcome) do
+    ("No connection is ready for #{inspect(base_name)}, #{outcome}. " <>
+       "Is it started in a supervision tree, and can it reach the graph?")
+    |> Logger.warning()
+
+    not_started
+  end
+
+  defp _warn_not_started(result, _base_name, _outcome),
+    do: result
+
+  @spec _lookup_version(base_name :: atom(), target_api :: atom()) ::
+          {:ok, version()} | {:error, {:unknown_api, [atom()]}} | {:error, :not_started}
+  defp _lookup_version(base_name, target_api) do
+    base_name
     |> _await_versions()
     |> case do
       :not_started ->
-        ("No connection is ready for #{inspect(base_name)}, refusing #{target_api} request. " <>
-           "Is it started in a supervision tree, and can it reach the graph?")
-        |> Logger.warning()
-
         {:error, :not_started}
 
       versions ->
